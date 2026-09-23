@@ -1,0 +1,10 @@
+.pio/
+build/
+sdcard/Diana.bin
+sdcard/diana/boot.wav
+sdcard/diana/memory.json
+sdcard/diana/notes.txt
+sdcard/diana/chatlog.txt
+*.pcm
+
+sdcard/diana/history.json
