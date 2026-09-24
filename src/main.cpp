@@ -26,6 +26,7 @@
 #include "DianaMenu.h"
 #include "DianaIR.h"
 #include "DianaMusic.h"
+#include "DianaForth.h"
 
 // The TLS handshake, base64 streaming buffers and JSON parsing all run on the
 // loop task; the default 8 KB stack is too tight for that chain.
@@ -365,6 +366,8 @@ static void speak(const String& text, const String& style = "", const String& la
     UI.setState(DianaState::IDLE);
 }
 
+void speakText(const String& text) { speak(text); }
+
 // ── conversation turn ────────────────────────────────────────────────────────
 static void handleReplyText(const String& replyIn, bool fromVoice) {
     String reply = replyIn;
@@ -668,6 +671,12 @@ void setup() {
     Memory.begin(sdOk);
     loadConvHistory();            // reload past conversation so she remembers across reboots
     bootLog("Memory: " + String(Memory.count()) + " facts, history reloaded");
+
+    // Forth: tunables and scripts from the SD card, no reflash needed (/diana/boot.fs runs now)
+    if (Forth.begin()) {
+        int n = (sdOk && SD.exists(Forth.bootScript())) ? Forth.runFile(Forth.bootScript(), false) : 0;
+        bootLog(n ? "Forth: boot.fs (" + String(n) + " lines)" : "Forth: ready");
+    } else bootLog("Forth: init failed", false);
 
     hooks.webSearch = [](const String& q) {
         String ans, err;

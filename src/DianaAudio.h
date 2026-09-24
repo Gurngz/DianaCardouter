@@ -95,6 +95,7 @@ private:
     int16_t* _playBuf[3] = {nullptr, nullptr, nullptr};
     int16_t* _sBuf[3] = {nullptr, nullptr, nullptr};   // dedicated large streaming buffers
     int      _sIdx = 0;               // rotating buffer index for streamFeed
+    int      _sChunk = STREAM_CHUNK_SAMPLES;   // samples per stream buffer (from Tune at streamBegin)
     size_t   _sAccBytes = 0;          // bytes accumulated in the current stream buffer
     int      _sFilled = 0;            // full buffers held during prebuffer
     bool     _sStarted = false;       // playback has begun (prebuffer satisfied)

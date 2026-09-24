@@ -16,6 +16,7 @@ extern String g_lastUserMsg;   // this turn's user message, paired with the repl
 
 // actions (main.cpp)
 void   runTurn(const String& text, const char* audioPath, size_t audioBytes);
+void   speakText(const String& text);     // speak with the default style (no mood tag)
 void   welcomeProtocol();
 void   enterStandby();
 void   openSetupPortal();

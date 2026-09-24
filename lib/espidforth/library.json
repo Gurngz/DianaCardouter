@@ -1,0 +1,16 @@
+{
+  "name": "espidforth",
+  "version": "0.5.0",
+  "description": "ESPIDFORTH core engine (IoTone, Apache-2.0), built inside the Arduino-esp32 tree. forth_core.cpp is upstream v0.5.0 plus #ifndef guards on its MAX_* limits.",
+  "license": "Apache-2.0",
+  "build": {
+    "flags": [
+      "-DEXT_RAM_BSS_ATTR=",
+      "-DCHIP_ESP32C6=13",
+      "-DMAX_WORDS=160",
+      "-DMAX_WORD_LEN=24",
+      "-DMAX_DICT_CODE=1536",
+      "-Wno-unused-function", "-Wno-sign-compare", "-Wno-write-strings"
+    ]
+  }
+}

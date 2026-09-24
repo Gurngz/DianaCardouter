@@ -1,5 +1,6 @@
 #include "DianaGemini.h"
 #include "DianaJson.h"
+#include "DianaTune.h"
 #include "DianaConfig.h"
 #include "DianaTools.h"
 #include "Base64Stream.h"
@@ -45,7 +46,7 @@ void DianaGemini::trimHistory() {
         return n;
     };
     // never drop the newest entry: a large tool-call turn must survive so its functionResponse has a parent
-    while (_history.size() > 1 && ((int)_history.size() > HISTORY_MAX_TURNS * 2 || totalChars() > HISTORY_MAX_CHARS)) {
+    while (_history.size() > 1 && ((int)_history.size() > Tune.historyMaxTurns * 2 || totalChars() > (size_t)Tune.historyMaxChars)) {
         _history.erase(_history.begin());
     }
     // the conversation must start with a plain user turn (not a tool result, not a model turn)
@@ -103,7 +104,7 @@ void DianaGemini::replaceLastUserTurn(const String& text) {
 String DianaGemini::requestTail() const {
     String tail = "],\"tools\":";
     tail += FPSTR(DianaTools::DECLARATIONS);
-    tail += ",\"generationConfig\":{\"maxOutputTokens\":" + String(REPLY_MAX_TOKENS) + ",\"temperature\":0.9";
+    tail += ",\"generationConfig\":{\"maxOutputTokens\":" + String(Tune.replyMaxTokens) + ",\"temperature\":0.9";
     if (Config.thinkingLevel.length()) tail += ",\"thinkingConfig\":{\"thinkingLevel\":\"" + jsonEscape(Config.thinkingLevel) + "\"}";
     tail += "}}";
     return tail;

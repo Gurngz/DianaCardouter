@@ -7,6 +7,7 @@
 #include "DianaConfig.h"
 #include "DianaUI.h"
 #include "DianaAudio.h"
+#include "DianaForth.h"
 
 static bool g_freezeUI = false;       // !ui off: skip all display redraws (isolate screen-coupling from mic)
 bool consoleUiFrozen() { return g_freezeUI; }
@@ -66,6 +67,16 @@ static void consoleLine(String line) {
         Serial.printf("[CONSOLE] > %s\n", line.c_str());
     }
     if (line.startsWith("/")) { handleCommand(line); return; }
+    // Forth REPL: `forth` enters, `bye` leaves; everything between is evaluated verbatim.
+    static bool forthRepl = false;
+    if (forthRepl) {
+        if (line == "bye") { forthRepl = false; Serial.println("[FORTH] bye"); return; }
+        int errs; String out = Forth.eval(line, errs);
+        if (out.length()) Serial.println(out);
+        Serial.println(errs ? "? error" : "ok");
+        return;
+    }
+    if (line == "forth") { forthRepl = true; Serial.println("[FORTH] REPL - type Forth, 'diana-words' for the vocabulary, 'bye' to leave"); return; }
 #if DIANA_DEBUG_CONSOLE
     if (line.startsWith("!")) {
         String c = line.substring(1); c.trim();

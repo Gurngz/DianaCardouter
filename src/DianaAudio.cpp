@@ -1,4 +1,5 @@
 #include "DianaAudio.h"
+#include "DianaTune.h"
 #include "config.h"
 #include "DianaConfig.h"
 #include <M5Unified.h>
@@ -134,7 +135,7 @@ bool DianaAudio::pollRecording() {
     f->write((uint8_t*)d, REC_CHUNK_SAMPLES * sizeof(int16_t));
     _bytesWritten += REC_CHUNK_SAMPLES * sizeof(int16_t);
 
-    if (now - _recStart > REC_MAX_SECONDS * 1000UL) return false;
+    if (now - _recStart > (uint32_t)Tune.recMaxSeconds * 1000UL) return false;
     if (_autoStop && _heardSpeech && (now - _lastVoiceMs) > (uint32_t)_silenceMs) return false;
     if (_autoStop && !_heardSpeech && (now - _recStart) > 6000) return false;   // nothing said
     return true;
@@ -245,7 +246,7 @@ DianaAudio::ListenResult DianaAudio::pollListening() {
     if (_level > trigger) _listenHeard = true;   // saw a clearly-loud chunk -> real speech, not noise
     if (voiced) _lastVoiceL = now;
     if (now - _lastVoiceL > (uint32_t)_listenSilence) return LISTEN_DONE;
-    if (now - _captureStart > REC_MAX_SECONDS * 1000UL) return LISTEN_DONE;
+    if (now - _captureStart > (uint32_t)Tune.recMaxSeconds * 1000UL) return LISTEN_DONE;
     return LISTEN_CAPTURING;
 }
 
@@ -334,8 +335,9 @@ bool DianaAudio::streamPcm(void* filePtr, uint32_t rate, bool stereo, size_t byt
 // starts so brief network stalls don't underrun the DAC.
 void DianaAudio::streamBegin() {
     speakerMode();
+    _sChunk = Tune.streamChunkSamples;       // snapshot: the whole stream uses one size
     for (int i = 0; i < 3; ++i) {
-        if (!_sBuf[i]) _sBuf[i] = (int16_t*)malloc(STREAM_CHUNK_SAMPLES * sizeof(int16_t));
+        if (!_sBuf[i]) _sBuf[i] = (int16_t*)malloc(_sChunk * sizeof(int16_t));
     }
     if (!_sBuf[0] || !_sBuf[1] || !_sBuf[2]) {      // no PSRAM: 14.4 KB can fail mid-TLS
         Serial.printf("[AUDIO] stream buffers unavailable (heap=%u)\n", ESP.getFreeHeap());
@@ -362,7 +364,7 @@ void DianaAudio::submitStreamBuf(int idx, size_t samples, std::function<bool()> 
 
 bool DianaAudio::streamFeed(const uint8_t* pcm, size_t len, std::function<bool()> tick) {
     if (!_streaming || !_sBuf[0] || !_sBuf[1] || !_sBuf[2]) return false;
-    const size_t chunkBytes = STREAM_CHUNK_SAMPLES * sizeof(int16_t);
+    const size_t chunkBytes = (size_t)_sChunk * sizeof(int16_t);
     while (len > 0) {
         int16_t* buf = _sBuf[_sIdx];
         size_t space = chunkBytes - _sAccBytes;
@@ -378,15 +380,15 @@ bool DianaAudio::streamFeed(const uint8_t* pcm, size_t len, std::function<bool()
                 _sFilled++;
                 _sIdx = (_sIdx + 1) % 3;
                 _sAccBytes = 0;
-                if (_sFilled >= STREAM_PREBUFFER) {
+                if (_sFilled >= Tune.streamPrebuffer) {
                     for (int k = 0; k < _sFilled; ++k) {
                         int bi = (_sIdx - _sFilled + k + 3) % 3;
-                        submitStreamBuf(bi, STREAM_CHUNK_SAMPLES, tick);
+                        submitStreamBuf(bi, _sChunk, tick);
                     }
                     _sStarted = true;
                 }
             } else {
-                submitStreamBuf(_sIdx, STREAM_CHUNK_SAMPLES, tick);
+                submitStreamBuf(_sIdx, _sChunk, tick);
                 _sIdx = (_sIdx + 1) % 3;
                 _sAccBytes = 0;
             }
@@ -402,7 +404,7 @@ void DianaAudio::streamEnd(std::function<bool()> tick) {
     if (!_sStarted) {
         for (int k = 0; k < _sFilled; ++k) {
             int bi = (_sIdx - _sFilled + k + 3) % 3;
-            submitStreamBuf(bi, STREAM_CHUNK_SAMPLES, tick);
+            submitStreamBuf(bi, _sChunk, tick);
         }
         _sStarted = true;
     }

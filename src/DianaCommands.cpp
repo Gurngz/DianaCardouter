@@ -12,6 +12,7 @@
 #include "DianaTools.h"
 #include "DianaMenu.h"
 #include "DianaIR.h"
+#include "DianaForth.h"
 
 // "<proto> <addr> <cmd>" -> parts; missing proto defaults to nec, numbers hex if 0x-prefixed.
 static void parseIrArgs(const String& argIn, String& proto, uint32_t& addr, uint32_t& cmd) {
@@ -45,7 +46,15 @@ static void showHelp() {
     UI.log("/music [track] /ir /ac /irsave /irrun /irlist", 's');
     UI.log("/memory /forget cat/key /notes /clear /status", 's');
     UI.log("/model <id> /ttsmodel <id> /think minimal|low|", 's');
+    UI.log("/forth <code> /fs <script> /tune  (Forth: diana-words)", 's');
     UI.log("/sleep /reboot /off", 's');
+}
+
+// Evaluate one Forth line and show what it printed.
+static void forthLine(const String& code) {
+    int errs; String out = Forth.eval(code, errs);
+    if (out.length()) UI.log(out, errs ? 'w' : 's');
+    else UI.log(errs ? "forth: error" : "ok", errs ? 'w' : 's');
 }
 
 bool handleCommand(const String& lineIn) {
@@ -146,6 +155,15 @@ bool handleCommand(const String& lineIn) {
     else if (cmd == "/sleep") { enterStandby(); }
     else if (cmd == "/reboot") { ESP.restart(); }
     else if (cmd == "/off") { shutdownArmed = true; runTurn("Barnyard Protocol.", nullptr, 0); }
+    else if (cmd == "/forth") { if (arg.isEmpty()) UI.log("usage: /forth <code>   e.g. /forth tunes", 'w'); else forthLine(arg); }
+    else if (cmd == "/tune") { forthLine(arg.isEmpty() ? String("tunes") : "s\" " + arg + "\" tune@ ."); }
+    else if (cmd == "/fs") {
+        if (!sdOk) { UI.log("scripts need the SD card", 'w'); return true; }
+        String p = arg.startsWith("/") ? arg : String(DIANA_DIR) + "/" + (arg.isEmpty() ? String("boot") : arg);
+        if (!p.endsWith(".fs")) p += ".fs";
+        int n = Forth.runFile(p.c_str(), true);
+        UI.log(n ? String("ran ") + n + " lines from " + p : "no script: " + p, n ? 's' : 'w');
+    }
     else if (cmd == "/heap") { UI.log("free heap " + String(ESP.getFreeHeap()) + " largest " + String(ESP.getMaxAllocHeap()), 's'); }
     else { UI.log("unknown command. /help", 'w'); }
     return true;

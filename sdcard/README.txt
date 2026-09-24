@@ -34,5 +34,6 @@ KEYS
   Fn + ; / Fn + .   scroll the log up / down
   Fn + `  (ESC)     clear the input / stop speaking / go to standby
   /help             list of slash commands (/setup /wifi /key /voice /mute /memory ...)
+  /forth <code>     Forth one-liner; /tune lists tunables; /fs boot re-runs diana/boot.fs
 
 SAY "Barnyard Protocol" or "Goodnight Diana" and she powers the device down.

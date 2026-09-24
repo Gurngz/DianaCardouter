@@ -76,6 +76,27 @@ Slash commands: `/setup` `/wifi <ssid> <pass>` `/key <apikey>` `/name <you>` `/v
 
 Say **"Barnyard Protocol"** or **"Goodnight Diana"** → farewell → power off.
 
+## Forth scripting (tuning without a reflash)
+
+Diana embeds [ESPIDFORTH](https://github.com/IoTone/ESPIDFORTH) (vendored in `lib/espidforth/`,
+about 15 KB of RAM and 20 KB of flash). Every audio and conversation constant worth adjusting is a
+named tunable, and behaviour can be scripted from the SD card:
+
+| Where | What |
+|---|---|
+| `/forth <code>` | evaluate one line on the HUD, e.g. `/forth s" vad" 700 tune!` |
+| `/tune` · `/tune vad` | list all tunables with ranges, or read one |
+| `/fs <name>` | run `/diana/<name>.fs` from the card (`/fs boot` re-runs the boot script) |
+| `diana/boot.fs` | runs at every boot after config and audio are up (sample in `sdcard/diana/`) |
+| serial: `forth` … `bye` | REPL over USB at 115200 baud |
+
+Vocabulary (`/forth diana-words`): `say` `ask` `log` `( addr u -- )`, `set ( name val -- )` for any
+device setting, `tune@` / `tune!` / `tunes` / `cfg-save`, `timer ( secs label -- )`, `ir ( addr cmd proto -- )`,
+`ir-run`, `tone ( hz ms -- )`, `beep`, `mute`, `sleep`, `wake`, `status`, `heap`, `ms`, `wait`, `wifi?` `sd?` `awake?`,
+`include ( name -- )`. Tunables: `vad` `silence_ms` `mic_gain` `volume` `brightness` `stream_chunk` `stream_prebuf`
+`reply_tokens` `rec_max_sec` `history_turns` `history_chars`. Strings are `s" text"`; lines are limited to
+250 characters; `\` starts a comment. The engine is ESPIDFORTH's core word set (`words` lists it).
+
 ## Build it yourself
 
 Requires PlatformIO (`pip install platformio` or `pipx install platformio`). The platform is pinned
@@ -101,6 +122,9 @@ src/
   DianaCommands.*   slash commands (/setup /wifi /key /voice ... /help)
   DianaConsole.*    USB serial console; `-DDIANA_DEBUG_CONSOLE=0` strips the `!` codec-register commands
   DianaJson.h       shared JSON string escaping
+  DianaForth.*      ESPIDFORTH bridge: Diana vocabulary, tunables table, /forth /fs, boot.fs
+  DianaTune.h       runtime tunables (defaults from config.h)
+lib/espidforth/     vendored ESPIDFORTH core (see its README for the three build shims)
   prompt.h          DIANA CORE PROTOCOL (Cardputer edition of core/prompt.txt)
   DianaGemini.*     REST client: chat + function calling (thoughtSignature-safe), TTS streaming, grounded search
   DianaHttp.*       streaming HTTPS (chunked bodies, keep-alive, body exposed as a Stream)

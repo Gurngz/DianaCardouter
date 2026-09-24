@@ -1,5 +1,11 @@
 # Porting Diana to ESPIDFORTH — cost, space, and design opportunities
 
+> **Status 2026-09-24:** Shape B (embed) is implemented on `pio-migration`:
+> `lib/espidforth/` + `src/DianaForth.*` + `src/DianaTune.h`, `/forth`, `/fs`,
+> `/tune`, serial REPL, `/diana/boot.fs`. Measured: engine 12.8 KB flash /
+> 14.8 KB static RAM at 160 words × 24 chars × 1536 code cells, plus an 8 KB
+> data heap; bridge 6.5 KB flash. Image 1,903 KB, static RAM 68.8 KB.
+
 Assessed 2026-09-24 against `../../iotone/ESPIDFORTH` at `dec0591` (v0.5.0) and
 this repo's `pio-migration` branch (Arduino core 2.0.17, espressif32 6.13.0).
 
