@@ -61,6 +61,12 @@ static void engine_unlock(void) {}
 #endif
 
 // ----- Configuration -----
+// Each limit can be overridden from the build (-DMAX_WORDS=160 ...). The defaults
+// suit PSRAM boards; a no-PSRAM consumer (e.g. an ESP32-S3FN8 next to a TLS stack)
+// can trim the static footprint from ~57 KB to ~14 KB with
+//   MAX_WORDS=160 MAX_WORD_LEN=24 MAX_DICT_CODE=1536
+// The dictionary costs MAX_WORDS * (MAX_WORD_LEN + ~12) bytes, code space
+// MAX_DICT_CODE * sizeof(cell_t), each stack MAX_*STACK * sizeof(cell_t).
 #ifndef MAX_STACK
 #define MAX_STACK     256
 #endif
