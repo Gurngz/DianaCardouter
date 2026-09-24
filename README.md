@@ -77,7 +77,10 @@ Say **"Barnyard Protocol"** or **"Goodnight Diana"** → farewell → power off.
 
 ## Build it yourself
 
-Requires PlatformIO (`pip install platformio`). The espressif32 platform + Arduino core 2.0.17 are used.
+Requires PlatformIO (`pip install platformio` or `pipx install platformio`). The platform is pinned
+to `espressif32@6.13.0` (Arduino core 2.0.17); an unpinned `espressif32` can resolve to a pioarduino
+core 3.x install and fail with `Network.h: No such file`. GitHub Actions builds every push and PR
+(`.github/workflows/build.yml`) and attaches `firmware.bin` as an artifact.
 
 ```bash
 pio run                          # → .pio/build/cardputer-adv/firmware.bin
@@ -104,7 +107,8 @@ src/
   DianaSetup.*      AP + captive web form for credentials
   DianaTools.*      tool declarations + executors
   Base64Stream.h    streaming base64 (audio upload / TTS download without big buffers)
-tools/              package_sd.py, make_boot_wav.py
+tools/              package_sd.py, make_boot_wav.py, backup.py (pre-git snapshots; superseded by branches)
+docs/               espidforth-port-assessment.md, code-quality-sweep.md
 sdcard/             what goes on the card
 partitions/         8 MB table used for USB flashing (the launcher manages its own)
 ```

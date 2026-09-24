@@ -1,0 +1,32 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+      - run: pip install platformio
+      - run: pio run -e cardputer-adv
+      - name: Report size
+        run: |
+          ls -l .pio/build/cardputer-adv/firmware.bin
+          python -c "import os;s=os.path.getsize('.pio/build/cardputer-adv/firmware.bin');print('app image: %d bytes (%.1f%% of 3 MB slot)'%(s,100*s/0x300000))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Diana-cardputer-adv-firmware
+          path: .pio/build/cardputer-adv/firmware.bin
