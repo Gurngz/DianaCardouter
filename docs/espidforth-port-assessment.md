@@ -88,19 +88,53 @@ scripting layer):
 | Hardware validation and regressions | 5–10 |
 | **Total** | **25–40 engineering days** |
 
-Shape B, **embed the engine in the existing Arduino build**: Arduino-esp32 is
-ESP-IDF underneath, and `forth_core.cpp` only needs `esp_timer`, `esp_system`,
-`heap` and `driver`, all of which are present. Drop `components/forth` into
-`lib/forth`, call `forth_init(16*1024)` after `setup()`, register a dozen words
-that wrap `runTurn`, `speak`, `addTimer`, `applyDeviceSetting` and the IR
-sender, and expose `/forth <line>` plus a `run_script` tool. **2–3 days**, no
-hardware regression risk to audio or networking.
+Shape B, **embed the engine in the existing Arduino build**. **Verified
+2026-09-24 by a probe build**: `forth_core.cpp` (v0.5.0, unmodified) compiles
+and links inside this project as `lib/espidforth/` with three build flags in
+its `library.json`, because Arduino core 2.0.17 sits on ESP-IDF 4.4:
 
-Recommendation: do Shape B first. It delivers the thing ESPIDFORTH is for
-(MagNET-style signed role bundles that reprogram behaviour without reflashing)
-and defers the 25–40 day rewrite until the engine gains the WiFi/HTTP words
-its roadmap lists. Revisit Shape A when ESPIDFORTH ships the full ESP32forth
-engine and a networking vocabulary.
+| Gap | Shim |
+|---|---|
+| `EXT_RAM_BSS_ATTR` does not exist in IDF 4.4 | `-DEXT_RAM_BSS_ATTR=` (it is empty without PSRAM anyway) |
+| `CHIP_ESP32C6` enum predates IDF 4.4 | `-DCHIP_ESP32C6=13` |
+| Arduino defines `MAX_INPUT` | `#undef MAX_INPUT` before including `forth_core.h` |
+
+Measured cost of the linked engine with a 16 KB data heap and one registered word:
+
+| | Engine | Notes |
+|---|---|---|
+| Flash | 12.8 KB | image 1,881 → 1,895 KB |
+| Static RAM | 57.2 KB | 53.5 → 112 KB static; dictionary 512 × 76 B ≈ 39 KB, code 4096 cells = 16 KB, stacks 2 KB |
+| Heap | whatever `forth_init(n)` is given | 16–32 KB is plenty for tuning scripts |
+
+The 57 KB is the one real cost and it is all tunable: the limits are plain
+`#define`s in `forth_core.cpp` (`MAX_WORDS 512`, `MAX_WORD_LEN 64`,
+`MAX_DICT_CODE 4096`). Guarding them with `#ifndef` upstream (a five-line PR
+to ESPIDFORTH) lets Diana build with 128 words × 32-char names and 1024 code
+cells for about **11 KB** of static RAM.
+
+Work: register the words that wrap `runTurn`, `speak`, `addTimer`,
+`applyDeviceSetting`, the config fields worth tuning (`vad_threshold`,
+`silence_ms`, `mic_gain`, `volume`, chunk sizes) and the IR sender; `/forth
+<line>` on the HUD and serial console; `run_script` as a Gemini tool; and a
+loader that evaluates `/diana/*.fs` from the SD card at boot and on demand.
+**2–3 days**, no regression risk to audio or networking.
+
+## What the SD card buys
+
+Flash is not short (1.26 MB free) and the SD card cannot hold executable
+code, so it does not change the port-size question. It changes the
+*workflow*: Forth source on the card means every tuning constant that is a
+`#define` today (`config.h` audio timings, VAD debounce, pre-roll, stream
+chunk sizes) can become a variable set from `/diana/tune.fs`, edited on a
+laptop and reloaded with one command, with no reflash and no reboot. Signed
+role bundles from a hive node would land in the same directory. The engine's
+data heap stays small because scripts are read line by line from the card.
+
+Recommendation, given that porting is acceptable: do Shape B now as the
+tuning layer, and treat Shape A (bare ESP-IDF) as a separate decision to be
+taken only if the engine gains the WiFi/HTTP vocabulary its roadmap lists.
+Shape A still costs 25–40 days and buys neither flash nor RAM.
 
 ## Design opportunities (independent of the port)
 
