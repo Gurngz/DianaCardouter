@@ -46,6 +46,17 @@ def find_esptool():
     return None
 
 
+def find_pio_python():
+    """esptool's dependencies (intelhex, cryptography) live in PlatformIO's own venv,
+    not necessarily in the interpreter running this script."""
+    home = os.path.expanduser("~")
+    for c in (os.path.join(home, ".platformio", "penv", "bin", "python"),
+              os.path.join(home, ".platformio", "penv", "Scripts", "python.exe")):
+        if os.path.exists(c):
+            return c
+    return sys.executable
+
+
 def find_boot_app0():
     home = os.path.expanduser("~")
     hits = glob.glob(os.path.join(home, ".platformio", "packages", "framework-arduinoespressif32*", "tools", "partitions", "boot_app0.bin"))
@@ -83,10 +94,13 @@ def main():
     pt = os.path.join(BUILD_DIR, "partitions.bin")
     if esptool and boot_app0 and os.path.exists(bl) and os.path.exists(pt):
         full = os.path.join(OUT_DIR, f"Diana-cardputer-adv-{ver}-full.bin")
-        run([sys.executable, esptool, "--chip", "esp32s3", "merge_bin", "-o", full,
-             "--flash_mode", "dio", "--flash_freq", "80m", "--flash_size", "8MB",
-             "0x0", bl, "0x8000", pt, "0xe000", boot_app0, "0x10000", fw])
-        print(f"full image: {full} ({os.path.getsize(full)} bytes)")
+        try:
+            run([find_pio_python(), esptool, "--chip", "esp32s3", "merge_bin", "-o", full,
+                 "--flash_mode", "dio", "--flash_freq", "80m", "--flash_size", "8MB",
+                 "0x0", bl, "0x8000", pt, "0xe000", boot_app0, "0x10000", fw])
+            print(f"full image: {full} ({os.path.getsize(full)} bytes)")
+        except subprocess.CalledProcessError as e:
+            print(f"WARNING: merged image not built ({e}); the SD package below is unaffected")
     else:
         print("skipping merged image (esptool / boot_app0 not found)")
 
