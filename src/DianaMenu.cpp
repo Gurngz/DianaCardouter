@@ -146,7 +146,7 @@ void DianaMenu::activate(int i) {
             case 5: case 6: break;  // volume/brightness adjust with ,/  not Enter
             case 7: enter(ANALYZER); return;
             case 8: enter(LOCATE); return;
-            case 9: close(); Setup.start(); UI.showSetup(SETUP_AP_SSID, Setup.url(), 0); return;
+            case 9: close(); _setupReq = true; return;   // main.cpp opens the portal (disconnects TLS first, handles failure)
             case 10: close(); return;
         }
     } else if (_page == WIFI) {

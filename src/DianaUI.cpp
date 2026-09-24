@@ -106,7 +106,7 @@ void DianaUI::showStandby() {
     M5.Display.setTextColor((uint32_t)C_CYAN_DIM, (uint32_t)C_BLACK);
     M5.Display.drawString(DIANA_ID "  //  STANDBY", SCREEN_W / 2, 72);
     M5.Display.setTextColor((uint32_t)C_DGREY, (uint32_t)C_BLACK);
-    M5.Display.drawString("say 'wake up diana'  (or type it + ENTER)", SCREEN_W / 2, 100);
+    M5.Display.drawString("type 'wake up diana' + ENTER  (or any /command)", SCREEN_W / 2, 100);
     M5.Display.setTextDatum(top_left);
     M5.Display.endWrite();
     setStandbyInput("");
@@ -127,7 +127,7 @@ void DianaUI::setStandbyInput(const String& text) {
     M5.Display.setFont(&fonts::Font0);
 }
 
-void DianaUI::showSetup(const String& ssid, const String& url, int clients) {
+void DianaUI::showSetup(const String& ssid, const String& psk, const String& url, int clients) {
     _scene = Scene::SETUP;
     _state = DianaState::SETUP;
     M5.Display.startWrite();
@@ -142,7 +142,7 @@ void DianaUI::showSetup(const String& ssid, const String& url, int clients) {
     M5.Display.drawString("1. On your phone, join WiFi:", SCREEN_W / 2, 40);
     M5.Display.setTextColor((uint32_t)C_CYAN, (uint32_t)C_BLACK);
     M5.Display.setFont(&fonts::AsciiFont8x16);
-    M5.Display.drawString(ssid, SCREEN_W / 2, 52);
+    M5.Display.drawString(ssid + "  pw " + psk, SCREEN_W / 2, 52);
     M5.Display.setFont(&fonts::Font0);
     M5.Display.setTextColor((uint32_t)C_WHITE, (uint32_t)C_BLACK);
     M5.Display.drawString("2. Open in the browser:", SCREEN_W / 2, 74);
@@ -473,9 +473,10 @@ void DianaUI::tick() {
     _lastAnim = now;
     _phase += 0.18f;
     if (_phase > 6.283f) _phase -= 6.283f;
+    static M5Canvas ring(&M5.Display);              // standby pulse; 3.9 KB, freed when the scene changes
+    if (_scene != Scene::STANDBY && ring.width()) ring.deleteSprite();
     if (_scene == Scene::STANDBY) {
         // pulsing ring under the title, redrawn in place
-        static M5Canvas ring(&M5.Display);
         if (!ring.width()) { ring.setColorDepth(16); ring.createSprite(44, 44); }
         ring.fillSprite((uint32_t)C_BLACK);
         float p = (sinf(_phase) + 1.0f) * 0.5f;

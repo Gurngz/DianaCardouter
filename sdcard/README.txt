@@ -24,8 +24,9 @@ INSTALL (from the Cardputer, no PC cable needed)
   5. Diana boots. Press any key on the standby screen to wake her.
 
 FIRST-BOOT SETUP PORTAL (if config.json has no key)
-  The screen shows a WiFi network "DIANA-SETUP". Join it with your phone,
-  open http://192.168.4.1, fill in WiFi + API key, tap Save. Diana reboots.
+  The screen shows a WiFi network "DIANA-SETUP" and its password (diana-xxxx).
+  Join it with your phone, open http://192.168.4.1, fill in WiFi + API key,
+  tap Save. Diana reboots.
 
 KEYS
   type + ENTER      talk to Diana by text

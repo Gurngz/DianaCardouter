@@ -42,6 +42,7 @@ public:
     bool   chunked = false;
 
     static void setCACert(const String& pem);   // optional; default is setInsecure()
+    static const String& caCert() { return _caPem; }
 
 private:
     WiFiClientSecure _client;

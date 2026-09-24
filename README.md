@@ -54,8 +54,9 @@ Typical voice turn: ~1.5 s TLS + 1–3 s model + 2–4 s TTS ≈ 5–8 s. Text t
 4. Insert the card, power on, press **ENTER** on the launcher screen → **OTA → SD card → `Diana.bin`** → install.
 5. Diana boots into standby. Press any key: welcome protocol runs, then chat.
 
-Skipped step 3? Diana opens a **setup portal**: join WiFi `DIANA-SETUP` from your phone,
-open `http://192.168.4.1`, fill in the form, Save. (`/setup` from the chat reopens it any time.)
+Skipped step 3? Diana opens a **setup portal**: join WiFi `DIANA-SETUP` from your phone (the WPA2
+password `diana-xxxx` is printed on Diana's screen), open `http://192.168.4.1`, fill in the form, Save.
+(`/setup` from the chat reopens it any time. The form never shows stored secrets; leave a field blank to keep it.)
 
 Optional: copy the PC's `Diana/memory/long_term.json` to `diana/memory.json` so she already knows you.
 
@@ -95,7 +96,11 @@ python tools/package_sd.py       # build + sdcard/Diana.bin + build/*.bin + buil
 
 ```
 src/
-  main.cpp          state machine: boot → standby → welcome → chat; keys; slash commands; timers
+  main.cpp          state machine: boot → standby → welcome → chat; keys; turn engine; timers
+  DianaApp.h        the state and entry points main.cpp shares with the two files below
+  DianaCommands.*   slash commands (/setup /wifi /key /voice ... /help)
+  DianaConsole.*    USB serial console; `-DDIANA_DEBUG_CONSOLE=0` strips the `!` codec-register commands
+  DianaJson.h       shared JSON string escaping
   prompt.h          DIANA CORE PROTOCOL (Cardputer edition of core/prompt.txt)
   DianaGemini.*     REST client: chat + function calling (thoughtSignature-safe), TTS streaming, grounded search
   DianaHttp.*       streaming HTTPS (chunked bodies, keep-alive, body exposed as a Stream)

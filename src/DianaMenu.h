@@ -11,6 +11,7 @@ public:
     void open();
     void close();
     bool isOpen() const { return _open; }
+    bool takeSetupRequest() { bool r = _setupReq; _setupReq = false; return r; }   // "open setup portal" chosen
     // Handle one key event; returns true if the menu consumed it (stays open),
     // false when the menu just closed (caller should restore the HUD).
     void handleKeys(const Keyboard_Class::KeysState& st);
@@ -20,6 +21,7 @@ public:
 private:
     enum Page { MAIN, WIFI, WIFI_PW, KEYS, KEY_ADD, ANALYZER, LOCATE };
     bool _open = false;
+    bool _setupReq = false;
     Page _page = MAIN;
     int  _sel = 0;
     int  _top = 0;                 // scroll offset

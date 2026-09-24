@@ -1,91 +1,61 @@
 # Code quality sweep — 2026-09-24
 
-Scope: `src/` (30 files, 5,800 lines). Build verified after every change with
-`pio run` (espressif32 6.13.0, Arduino core 2.0.17). Nothing here has been run
-on hardware.
+Scope: `src/` (5,800 lines at the start). Every change was build-verified with
+`pio run` (espressif32 6.13.0, Arduino core 2.0.17), in both the default and
+the `-DDIANA_DEBUG_CONSOLE=0` variants. **Nothing here has been run on
+hardware**; the audio and WiFi changes in particular deserve a bench pass.
 
 ## Fixed on `pio-migration`
 
-| # | Where | Problem | Fix |
-|---|---|---|---|
-| 1 | `main.cpp` hands-free branch of `loop()` | `return` skipped `serviceTimers()`, so a timer set by voice never fired while listening | `timerDue()` check before the early return; stops listening and falls through when a timer is due |
-| 2 | `DianaAudio::streamBegin` / `streamFeed` | 3 × 4.8 KB `malloc` unchecked; `streamFeed` only tested buffer 0, then wrote into 1 and 2 | all three checked; on failure buffers are freed and streaming is disabled |
-| 3 | `DianaAudio::streamEnd` | on the 12 s timeout, buffers were freed while the speaker task could still read them | `M5.Speaker.stop(0)` before freeing |
-| 4 | `runTurn` tool loop | `for (round < 4)`: the fourth round's reply text was never shown or spoken | loop bounded by `MAX_TOOL_ROUNDS` after the reply is handled; logs "tool round limit reached" |
-| 5 | `addTimer` | no upper bound; anything over ~24.8 days wraps `millis()` and fires immediately | rejects outside 1 s … 7 days (`TIMER_MAX_SECONDS`) |
-| 6 | `/delkey` | `arg.toInt()` of text is 0, so `/delkey abc` deleted key #0 | requires a numeric argument |
-
-Flash after fixes: 1,881,321 bytes (+552 over the committed 1.0.0 build).
-
-## Open, ranked
-
 ### Correctness
-- **Setup portal from the menu** (`DianaMenu.cpp:149`) ignores `Setup.start()`'s
-  result; `loop()` treats "portal not running" as "saved" and calls
-  `ESP.restart()` (`main.cpp:1143`). A failed start reboots the device. The
-  menu path also skips the `Gemini.disconnect()` that the `/setup` path does.
-- **Config load clobbers settings every boot** (`DianaConfig.cpp:75-76`):
-  `silenceMs > 900 → 700` and `micGain > 40 → default`, although `/mic`
-  accepts up to 128 and the shipped default `silenceMs` is 1200. These were
-  one-off migrations; gate them on a config version field.
-- **`volumeOverride` is dead** (`DianaAudio.cpp:479`): `streamPcm` calls
-  `speakerMode()`, which resets the volume. Boot music plays at the normal
-  volume.
-- **History trimming can drop a tool-call turn** (`DianaGemini.cpp:63`) and the
-  next `functionResponse` is then rejected by the API. Trim in whole
-  user→model→function groups.
-- **Serial console runs in every state** (`main.cpp:1107`), so a serial line
-  can start a turn while the mic is recording.
-- **Every Live failure rotates the API key** and writes NVS (`main.cpp:319`),
-  including plain network errors. `DianaLive.cpp:124` also parses the status
-  from `"HTTP/1.1 4xx"` with `toInt()`, which always yields 0.
-- **WiFi reconnect blocks the UI** for ≥15 s per saved network every 30 s
-  when disconnected (`DianaNet.cpp:34,41`, `main.cpp:1210`).
-- `spoken.substring(0, 600)` (`main.cpp:270`) can split a UTF-8 sequence.
+| Where | Problem | Fix |
+|---|---|---|
+| `loop()` hands-free branch | `return` skipped `serviceTimers()`; voice-set timers never fired while listening | `timerDue()` before the early return; stops listening and falls through when one is due |
+| `DianaAudio::streamBegin/streamFeed` | 3 × 4.8 KB `malloc` unchecked; only buffer 0 tested before writing into 1 and 2 | all three checked; on failure buffers freed and streaming disabled |
+| `DianaAudio::streamEnd` | on the 12 s timeout, buffers freed while the speaker task could still read them | `M5.Speaker.stop(0)` before freeing |
+| `DianaAudio::playWavFile` | `volumeOverride` was overwritten by `speakerMode()` inside `streamPcm`; boot music ignored its 3/4 volume | override goes through `_volume`, restored afterwards |
+| `runTurn` | the fourth tool round's reply text was dropped | loop bounded by `MAX_TOOL_ROUNDS` after the reply is handled |
+| `addTimer` | no upper bound; > 24.8 days wraps `millis()` and fires at once | 1 s … 7 days (`TIMER_MAX_SECONDS`) |
+| `/delkey` | `toInt()` of text is 0, so `/delkey abc` deleted key #0 | numeric argument required |
+| `DianaConfig::load` | `silenceMs > 900 → 700` and `micGain > 40 → default` ran on every boot, undoing `/mic` and the shipped `silence_ms: 1500` | migrations gated on `config_version` (`CONFIG_VERSION` 2), stored in SD JSON and NVS |
+| Menu → setup portal | `Setup.start()` result ignored; `loop()` treated "portal not running" as "saved" and rebooted; Gemini/Live sockets left open | menu raises a request, `openSetupPortal()` drops both TLS sockets first and reports failure; `loop()` only reboots when `Setup.saved()` |
+| `DianaGemini::trimHistory` | a single oversized tool-call turn could erase itself, orphaning the next `functionResponse` | never trims the newest entry |
+| `speak()` Live fallback | every Live failure (including network) rotated the API key and wrote NVS | rotate only on 401/403/429 |
+| `DianaLive::openSession` | HTTP status parsed with `toInt()` on `"HTTP/1.1 4xx"` → always 0 | parses the code after the first space |
+| `DianaNet::connect` | 15 s floor plus a scan on every call; the 30 s background retry froze the HUD | floor and scan only on the boot path (progress callback given) |
+| `speak()` / `saveConvTurn` | `substring()` could split a UTF-8 glyph, producing invalid JSON | `utf8Truncate()` |
+| Serial console | a serial line could start a turn while the mic owned I2S | stops recording/listening before `runTurn` |
 
-### RAM (no PSRAM)
-- Two TLS sessions coexist by design (Gemini keep-alive + Live WebSocket),
-  roughly 70–90 KB. `GeminiLive.end()` is never called, not even in standby.
-- Per request: ~25 KB of transient `String` building (`head`, `hist`, the
-  4.7 KB `DECLARATIONS` copy in `requestTail()`), allocated during the TLS
-  handshake. Write the pieces straight to `_http`.
-- `deserializeJson(doc, _http)` (`DianaGemini.cpp:191`) parses the whole
-  response including thought signatures; use a `Filter`.
-- Display canvases 43.7 KB permanent; `_bar`/`_in` at 8-bit would save 7.4 KB.
-  The standby ring (3.9 KB) is never freed.
-- `saveConvTurn` re-parses and rewrites the whole history file every turn.
-
-### Dead and duplicated code
-- Never called: `serviceHandsFree`, `serviceStandbyWake`, `playThinking`,
-  `generateFillersIfMissing`, `genFiller`, `Gemini.tts()`, `finishListening`,
-  `stopPlayback`, `isPlaying`, `Setup.saved()`. Settings with no effect:
-  `idleSleepSec`, `autoWake`, `voiceWake`; `g_gateWake` is always false.
-- The RECORDING branch of `handleKeys` is unreachable (`loop` returns first).
-- Duplicated: base64 `"data"` scanner ×3, `jsonEscape` ×2 (different
-  control-char handling), WiFi scan summary ×2, UTF-8 backspace ×2, wake-phrase
-  check ×3.
-- Left-in debugging: the `!` console, `huntStep`, ES8311 register pokes,
-  `g_freezeUI`, `bootTest` at volume 255 (bypasses the 170 brown-out cap).
-
-### Structure
-- `main.cpp` seams: conversation store (74-114), device settings (116-185),
-  timers, speech (212-353), turn engine (355-518), lifecycle (520-600),
-  commands table (602-715), input (717-868), debug console (1000-1103).
-- App state is spread over `UI.state()`, `awake`, `Menu.isOpen`,
-  `Music.isOpen`, `Audio.isListening`, `shutdownArmed`.
-- Defaults live in three places and disagree (`font`: `"jp"` in the header,
-  `"ascii"` in both loaders). `"Leda"`, the TTS model name, `D-I-0336-7` and
-  the Gemini host are each hard-coded a second time.
-- Globals named `Audio`, `Config`, `Setup`, `Net` are collision-prone.
+### RAM
+- `enterStandby()` now calls `GeminiLive.end()`, so only one TLS socket survives sleep.
+- The standby pulse canvas (3.9 KB) is freed when the scene changes.
 
 ### Security
-- Setup AP `DIANA-SETUP` is open, `/save` is unauthenticated, and the form
-  pre-fills the stored WiFi password and every API key (`DianaSetup.cpp:62-65`).
-  At minimum: WPA2 with a printed one-time PSK, and never echo secrets.
-- TLS is `setInsecure()` by default; Live ignores `ca.pem` and sends the API
-  key in the URL query string.
-- `[CONSOLE] >` echoes `/key` and `/wifi` lines to serial.
-- `voice`, `langCode` (Live setup JSON) and `chatModel` (URL path) are user
-  input inserted without escaping.
-- The `connect_wifi` tool lets the model change networks; reachable through
-  prompt injection from search results.
+- Setup AP is WPA2 with a per-device key (`diana-` + last MAC bytes), shown on the screen (`SETUP_AP_PSK_PREFIX`).
+- The portal form no longer echoes the stored WiFi password or API keys; blank fields keep the stored values.
+- `/key`, `/addkey` and `/wifi` are masked in the serial echo.
+- Live setup JSON escapes `voice` and `languageCode`; `/model` and `/ttsmodel` accept only URL-safe ids.
+- The Live WebSocket honours `/diana/ca.pem` like the REST client (still `setInsecure()` when absent).
+
+### Dead code, duplicates, structure
+- Removed (never called): `serviceHandsFree`, `serviceStandbyWake`, the filler-clip generator (`genFiller`, `generateFillersIfMissing`, `playThinking`), `Gemini::tts()`, `Audio::finishListening/recordedSeconds/stopPlayback/isPlaying`, the unreachable RECORDING branch in `handleKeys`, the always-false wake-word gate (`g_gateWake`, `g_turnSuppressed`, `lastInteractionMs`, `FOLLOWUP_MS`), `g_listenPaused`, `idleSinceMs`, `ttsAvailable` (always equal to `sdOk`), `TTS_PATH`, `DIANA_NAME`.
+- Standby screen text now matches reality (typed wake only).
+- Shared helpers: `DianaJson.h` (one `jsonEscape`; the Live copy had different control-char handling), `utf8Truncate`, `utf8Backspace`, `isWakePhrase` (was 3 copies), `parseIrArgs` (was 2 copies).
+- Defaults in one place: `DEFAULT_*` in `config.h` used by the header, the SD loader and the NVS loader (they disagreed on `font`). `LIVE_MODEL`, `DEFAULT_TTS_VOICE`, `GEMINI_HOST`, `DIANA_ID` replace their hard-coded twins.
+- `main.cpp` 1,215 → 855 lines: slash commands in `DianaCommands.cpp`, serial console in `DianaConsole.cpp`, shared state declared in `DianaApp.h`. The `!` register-poke commands and the chop hunt compile out with `-DDIANA_DEBUG_CONSOLE=0` (−3.9 KB).
+
+Flash: 1,881 KB (unchanged within 1 KB). Static RAM: 53.5 KB.
+
+## Still open
+
+- **Two TLS sessions while awake** (Gemini keep-alive + Live WebSocket, ~70–90 KB). Make Live a build option (`-DDIANA_LIVE=0`) if the REST path is good enough.
+- **Per-request `String` building** (~25 KB transient: system prompt + history + the 4.7 KB `DECLARATIONS` copy) right as the TLS handshake runs. Write the pieces straight to the socket.
+- `deserializeJson(doc, _http)` parses the whole reply; a `Filter` would skip thought signatures and grounding metadata.
+- `_bar`/`_in` canvases at 16-bit (7.4 KB saving at 8-bit); `saveConvTurn` rewrites the whole history file each turn; `readNotes` reads byte-by-byte into a `String`.
+- The base64 `"data"` scanner still exists twice (`ttsStream`, Live `speak`); the Live one meters peak level inline so they were not merged.
+- Settings that are stored but do nothing: `idle_sleep_sec`, `auto_wake`, `voice_wake`. Either implement or drop them from the menu and tools.
+- TLS is still unverified without `ca.pem`. Embedding the Google Trust Services roots is the fix; it needs a bench test because a wrong chain takes the device offline.
+- The Live API key travels in the WebSocket URL (Google's documented form); `x-goog-api-key` may work and would keep it out of logs.
+- The `connect_wifi` tool is reachable through prompt injection from search results.
+- Menu saves with `Config.save(true)` regardless of SD presence (harmless: the SD write just fails).
+- Further `main.cpp` seams if wanted: turn engine (`runTurn`, `speak`, mood/lang), lifecycle, conversation store.

@@ -31,19 +31,25 @@ static const char* wlStatusName(int s) {
 
 bool DianaNet::connect(uint32_t timeoutPerNetworkMs, void (*progress)(const String&)) {
     if (!Config.hasWifi()) return false;
-    if (timeoutPerNetworkMs < 15000) timeoutPerNetworkMs = 15000;
+    // Boot (progress callback given) gets the patient path: a long per-network timeout and a
+    // diagnostic scan. Background retries from loop() are blocking too, so they keep the caller's
+    // short timeout and skip the scan - otherwise a lost AP froze the HUD for 15 s every 30 s.
+    bool boot = progress != nullptr;
+    if (boot && timeoutPerNetworkMs < 15000) timeoutPerNetworkMs = 15000;
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setHostname("diana-cardputer");
 
-    // One diagnostic scan so we can see which 2.4 GHz APs are actually visible.
-    int n = WiFi.scanNetworks();
-    Serial.printf("[NET] scan found %d networks:\n", n);
-    for (int i = 0; i < n && i < 16; ++i) {
-        Serial.printf("   '%s' rssi=%d ch=%d enc=%d\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), (int)WiFi.encryptionType(i));
+    if (boot) {
+        // One diagnostic scan so we can see which 2.4 GHz APs are actually visible.
+        int n = WiFi.scanNetworks();
+        Serial.printf("[NET] scan found %d networks:\n", n);
+        for (int i = 0; i < n && i < 16; ++i) {
+            Serial.printf("   '%s' rssi=%d ch=%d enc=%d\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), (int)WiFi.encryptionType(i));
+        }
+        WiFi.scanDelete();
     }
-    WiFi.scanDelete();
 
     for (auto& cred : Config.wifi) {
         if (progress) progress("WiFi: " + cred.ssid);

@@ -19,7 +19,7 @@ public:
     void bootLine(const String& line, bool ok = true);
     void showStandby();
     void setStandbyInput(const String& text);   // typed wake-phrase line on the standby screen
-    void showSetup(const String& ssid, const String& url, int clients);
+    void showSetup(const String& ssid, const String& psk, const String& url, int clients);
     void showHud();                      // switch to the chat HUD
 
     // HUD content

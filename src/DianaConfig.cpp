@@ -70,10 +70,13 @@ bool DianaConfig::load(bool sdAvailable) {
     }
     // Union any keys stored in NVS (baked-in keys augment whatever the SD card has).
     mergeNvsKeys();
-    // Migrate away from the free-tier-throttled 2.5 TTS model to the streaming 3.1 one.
-    if (ttsModel == "gemini-2.5-flash-preview-tts") ttsModel = "";
-    if (silenceMs > 900) silenceMs = 700;      // snappier end-of-speech from older configs
-    if (micGain > 40) micGain = DEFAULT_MIC_GAIN;  // old configs baked 48 (too hot -> noise read as speech)
+    // One-off migrations, applied once per config (gated so /mic and silence_ms edits survive a reboot).
+    if (configVersion < 2) {
+        if (ttsModel == "gemini-2.5-flash-preview-tts") ttsModel = "";   // free-tier-throttled -> streaming 3.1
+        if (silenceMs > 900) silenceMs = 700;          // snappier end-of-speech from older configs
+        if (micGain > 40) micGain = DEFAULT_MIC_GAIN;  // old configs baked 48 (too hot -> noise read as speech)
+        configVersion = CONFIG_VERSION;
+    }
     syncActiveKey();
     saveToNvs();                               // persist the merged key list + settings
     loaded = apiKey.length() > 10;
@@ -119,21 +122,22 @@ bool DianaConfig::loadFromSd() {
     ttsStyle     = doc["tts_style"]      | "";
     userName     = doc["user_name"]      | "";
     tz           = doc["timezone"]       | "";
-    font         = doc["font"]           | "ascii";
-    thinkingLevel = doc["thinking_level"] | "minimal";
-    voiceEnabled = doc["voice_enabled"]  | true;
-    bootMusic    = doc["boot_music"]     | true;
-    autoWake     = doc["auto_wake"]      | false;
-    autoStop     = doc["auto_stop_recording"] | true;
-    handsFree    = doc["hands_free"]     | true;
-    voiceWake    = doc["voice_wake"]     | true;
-    wakeWord     = doc["wake_word"]      | "diana";
+    font         = doc["font"]           | DEFAULT_FONT;
+    thinkingLevel = doc["thinking_level"] | DEFAULT_THINKING_LEVEL;
+    voiceEnabled = doc["voice_enabled"]  | DEFAULT_VOICE_ENABLED;
+    bootMusic    = doc["boot_music"]     | DEFAULT_BOOT_MUSIC;
+    autoWake     = doc["auto_wake"]      | DEFAULT_AUTO_WAKE;
+    autoStop     = doc["auto_stop_recording"] | DEFAULT_AUTO_STOP;
+    handsFree    = doc["hands_free"]     | DEFAULT_HANDS_FREE;
+    voiceWake    = doc["voice_wake"]     | DEFAULT_VOICE_WAKE;
+    wakeWord     = doc["wake_word"]      | DEFAULT_WAKE_WORD;
     micGain      = doc["mic_gain"]       | DEFAULT_MIC_GAIN;
-    volume       = doc["volume"]         | 200;
-    brightness   = doc["brightness"]     | 160;
-    vadThreshold = doc["vad_threshold"]  | 550;
-    silenceMs    = doc["silence_ms"]     | 1200;
-    idleSleepSec = doc["idle_sleep_sec"]  | 60;
+    volume       = doc["volume"]         | DEFAULT_VOLUME;
+    brightness   = doc["brightness"]     | DEFAULT_BRIGHTNESS;
+    vadThreshold = doc["vad_threshold"]  | DEFAULT_VAD_THRESHOLD;
+    silenceMs    = doc["silence_ms"]     | DEFAULT_SILENCE_MS;
+    idleSleepSec = doc["idle_sleep_sec"]  | DEFAULT_IDLE_SLEEP_SEC;
+    configVersion = doc["config_version"] | 0;
     return true;
 }
 
@@ -170,6 +174,7 @@ bool DianaConfig::saveToSd() {
     doc["vad_threshold"]  = vadThreshold;
     doc["silence_ms"]     = silenceMs;
     doc["idle_sleep_sec"] = idleSleepSec;
+    doc["config_version"] = configVersion;
     if (!SD.exists(DIANA_DIR)) SD.mkdir(DIANA_DIR);
     File f = SD.open(CONFIG_PATH, FILE_WRITE);
     if (!f) return false;
@@ -199,21 +204,22 @@ bool DianaConfig::loadFromNvs() {
     ttsStyle     = p.getString("ttsstyle", "");
     userName     = p.getString("username", "");
     tz           = p.getString("tz", "");
-    font         = p.getString("font", "ascii");
-    thinkingLevel = p.getString("think", "minimal");
-    voiceEnabled = p.getBool("voice", true);
-    bootMusic    = p.getBool("bootmusic", true);
-    autoWake     = p.getBool("autowake", false);
-    autoStop     = p.getBool("autostop", true);
-    handsFree    = p.getBool("handsfree", true);
-    voiceWake    = p.getBool("vwake", true);
-    wakeWord     = p.getString("wakeword", "diana");
+    font         = p.getString("font", DEFAULT_FONT);
+    thinkingLevel = p.getString("think", DEFAULT_THINKING_LEVEL);
+    voiceEnabled = p.getBool("voice", DEFAULT_VOICE_ENABLED);
+    bootMusic    = p.getBool("bootmusic", DEFAULT_BOOT_MUSIC);
+    autoWake     = p.getBool("autowake", DEFAULT_AUTO_WAKE);
+    autoStop     = p.getBool("autostop", DEFAULT_AUTO_STOP);
+    handsFree    = p.getBool("handsfree", DEFAULT_HANDS_FREE);
+    voiceWake    = p.getBool("vwake", DEFAULT_VOICE_WAKE);
+    wakeWord     = p.getString("wakeword", DEFAULT_WAKE_WORD);
     micGain      = p.getInt("micgain", DEFAULT_MIC_GAIN);
-    volume       = p.getInt("volume", 200);
-    brightness   = p.getInt("bright", 160);
-    vadThreshold = p.getInt("vad", 550);
-    silenceMs    = p.getInt("silence", 1200);
-    idleSleepSec = p.getInt("idlesleep", 60);
+    volume       = p.getInt("volume", DEFAULT_VOLUME);
+    brightness   = p.getInt("bright", DEFAULT_BRIGHTNESS);
+    vadThreshold = p.getInt("vad", DEFAULT_VAD_THRESHOLD);
+    silenceMs    = p.getInt("silence", DEFAULT_SILENCE_MS);
+    idleSleepSec = p.getInt("idlesleep", DEFAULT_IDLE_SLEEP_SEC);
+    configVersion = p.getInt("cfgver", 0);
     p.end();
     return !apiKeys.empty() || !wifi.empty();
 }
@@ -271,6 +277,7 @@ bool DianaConfig::saveToNvs() {
     p.putInt("vad", vadThreshold);
     p.putInt("silence", silenceMs);
     p.putInt("idlesleep", idleSleepSec);
+    p.putInt("cfgver", configVersion);
     p.end();
     return true;
 }

@@ -11,6 +11,7 @@ public:
     bool loop();                  // returns true while portal is running; false once saved
     int  clients();
     String url() const { return "http://192.168.4.1"; }
+    String psk();                 // WPA2 key of the setup AP (shown on screen)
     bool saved() const { return _saved; }
 
 private:

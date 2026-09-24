@@ -19,14 +19,12 @@ public:
     size_t stopRecording();
     bool   isRecording() const { return _recording; }
     int    level() const { return _level; }          // last chunk RMS (for the meter)
-    float  recordedSeconds() const;
     bool   heardSpeech() const { return _heardSpeech; }
 
     // ── hands-free listening (continuous VAD; captures whole utterances) ───
     enum ListenResult { LISTEN_IDLE, LISTEN_CAPTURING, LISTEN_DONE };
     bool startListening(const char* path, int vadThreshold, int silenceMs);
     ListenResult pollListening();     // call every loop; writes to path once speech starts
-    size_t finishListening();         // close the captured file, return bytes, stop+free the mic
     // Close the utterance file and return bytes, but KEEP the mic running and buffers alive
     // (no I2S restart -> no click) so listening can continue seamlessly for the next utterance.
     size_t takeUtterance();
@@ -47,8 +45,6 @@ public:
     // ── playback (blocking; `tick` is called between chunks and may return false to abort) ──
     bool playPcmFile(const char* path, uint32_t rate, std::function<bool()> tick = nullptr);
     bool playWavFile(const char* path, std::function<bool()> tick = nullptr, int volumeOverride = -1);
-    void stopPlayback();
-    bool isPlaying();
 
     // ── signature sounds ────────────────────────────────────────────────
     void chirpBoot();       // "lightning binary chirp" from the PC welcome protocol

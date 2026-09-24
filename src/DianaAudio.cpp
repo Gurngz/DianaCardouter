@@ -161,10 +161,6 @@ size_t DianaAudio::stopRecording() {
     return bytes;
 }
 
-float DianaAudio::recordedSeconds() const {
-    return _bytesWritten / (float)(REC_RATE * 2);
-}
-
 // ───────────────────────── hands-free listening ──────────────────────────
 // Continuously reads the mic; keeps a short pre-roll ring so the start of an
 // utterance (the wake word) isn't clipped. When the chunk energy crosses the
@@ -251,22 +247,6 @@ DianaAudio::ListenResult DianaAudio::pollListening() {
     if (now - _lastVoiceL > (uint32_t)_listenSilence) return LISTEN_DONE;
     if (now - _captureStart > REC_MAX_SECONDS * 1000UL) return LISTEN_DONE;
     return LISTEN_CAPTURING;
-}
-
-size_t DianaAudio::finishListening() {
-    if (!_listening) return 0;
-    File* f = (File*)_listenFile;
-    if (f) { f->flush(); f->close(); delete f; _listenFile = nullptr; }
-    // Fully stop the capture task before freeing its buffers, or the mic DMA can write
-    // into freed memory and corrupt the heap.
-    if (M5.Mic.isRunning()) M5.Mic.end();
-    _listening = false;
-    _capturing = false;
-    freeRecBufs();
-    for (int i = 0; i < PREROLL_CHUNKS; ++i) { free(_preroll[i]); _preroll[i] = nullptr; }
-    size_t b = _bytesWritten;
-    _bytesWritten = 0;
-    return b;
 }
 
 size_t DianaAudio::takeUtterance() {
@@ -482,16 +462,16 @@ bool DianaAudio::playWavFile(const char* path, std::function<bool()> tick, int v
     }
     if (!haveFmt || dataLen == 0) { f.close(); return false; }
     if (dataLen > f.size() - f.position()) dataLen = f.size() - f.position();
+    // streamPcm() -> speakerMode() applies _volume, so the override must go through _volume.
     int oldVol = _volume;
-    if (volumeOverride >= 0) M5.Speaker.setVolume(volumeOverride);
+    if (volumeOverride >= 0) _volume = volumeOverride;
     bool ok = streamPcm(&f, rate, channels == 2, dataLen, tick);
-    M5.Speaker.setVolume(oldVol);
+    _volume = oldVol;
+    M5.Speaker.setVolume(_volume);
     f.close();
     return ok;
 }
 
-void DianaAudio::stopPlayback() { M5.Speaker.stop(); }
-bool DianaAudio::isPlaying() { return M5.Speaker.isPlaying(); }
 
 // ───────────────────────────── chirps ────────────────────────────────────
 void DianaAudio::toneMs(float freq, uint32_t ms) {

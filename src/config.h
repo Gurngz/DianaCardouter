@@ -7,7 +7,6 @@
 #endif
 
 #define DIANA_ID        "D-I-0336-7"
-#define DIANA_NAME      "DIANA"
 
 // ── microSD (Cardputer / Cardputer ADV share the same SPI wiring) ──────────
 #define SD_PIN_SCK      40
@@ -25,7 +24,6 @@
 #define IR_CODES_PATH   "/diana/ir_codes.json"
 #define BOOT_WAV_PATH   "/diana/boot.wav"
 #define REC_PATH        "/diana/.rec.pcm"
-#define TTS_PATH        "/diana/.tts.pcm"
 
 // ── Audio ──────────────────────────────────────────────────────────────────
 #define REC_RATE            16000      // mic sample rate sent to Gemini (audio/L16;rate=16000)
@@ -33,7 +31,6 @@
 #define REC_CHUNK_SAMPLES   512        // 32 ms per chunk
 #define PREROLL_CHUNKS      16         // ~0.5 s kept before speech so the wake word isn't clipped
 #define DEFAULT_MIC_GAIN    32         // ES8311/M5 mic magnification (16 = library default; 48 was too hot -> noise read as speech)
-#define FOLLOWUP_MS         15000      // after Diana replies, this long you can talk without saying "Diana"
 #define TTS_RATE            24000      // Gemini TTS returns 24 kHz 16-bit mono PCM
 #define PLAY_CHUNK_SAMPLES  1024
 // Streaming playback: the M5 speaker holds only 2 queued slots, so big buffers = the
@@ -58,9 +55,33 @@
 #define DEFAULT_TTS_MODEL   "gemini-3.1-flash-tts-preview"   // low-latency, streams; 2.5 is quota-capped on free tier
 #define DEFAULT_TTS_VOICE   "Leda"
 #define DEFAULT_TTS_STYLE   "Say this in a soft, gentle, slightly peppy young voice: "
+#define LIVE_MODEL          "models/gemini-2.5-flash-native-audio-preview-12-2025"
+
+// ── Runtime setting defaults (single source for DianaConfig's three loaders) ──
+#define CONFIG_VERSION          2          // bump when a one-off migration is added in DianaConfig::load
+#define DEFAULT_FONT            "ascii"    // "jp" = multilingual efont (EN/FR/ES/JP), "ascii" = plain Font0
+#define DEFAULT_THINKING_LEVEL  "minimal"
+#define DEFAULT_WAKE_WORD       "diana"
+#define DEFAULT_VOLUME          200
+#define DEFAULT_BRIGHTNESS      160
+#define DEFAULT_VAD_THRESHOLD   550
+#define DEFAULT_SILENCE_MS      1200
+#define DEFAULT_IDLE_SLEEP_SEC  60
+#define DEFAULT_VOICE_ENABLED   true
+#define DEFAULT_BOOT_MUSIC      true
+#define DEFAULT_AUTO_WAKE       false
+#define DEFAULT_AUTO_STOP       true
+#define DEFAULT_HANDS_FREE      true
+#define DEFAULT_VOICE_WAKE      true
 
 // ── Setup portal ───────────────────────────────────────────────────────────
 #define SETUP_AP_SSID       "DIANA-SETUP"
+#define SETUP_AP_PSK_PREFIX "diana-"        // + last 4 hex digits of the MAC, shown on the setup screen
+
+// ── Build options ──────────────────────────────────────────────────────────
+#ifndef DIANA_DEBUG_CONSOLE
+#define DIANA_DEBUG_CONSOLE 1              // '!' serial commands: ES8311 register pokes, chop hunt
+#endif
 
 // ── UI geometry (240x135 landscape) ────────────────────────────────────────
 #define SCREEN_W        240

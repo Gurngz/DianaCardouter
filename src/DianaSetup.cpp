@@ -20,14 +20,14 @@ input,select,textarea{width:100%;box-sizing:border-box;padding:10px;background:#
 button{margin-top:18px;width:100%;padding:12px;background:#00d4ff;color:#000;border:0;border-radius:6px;font-size:17px;font-weight:600}
 .row{display:flex;gap:10px}.row>div{flex:1}.note{color:#7a8;font-size:12px;margin-top:6px}
 .ok{padding:14px;border:1px solid #00d4ff;border-radius:8px;margin-top:20px}
-</style></head><body><h1>DIANA</h1><div class="id">D-I-0336-7 // CARDPUTER SETUP</div>)HTML";
+</style></head><body><h1>DIANA</h1><div class="id">%ID% // CARDPUTER SETUP</div>)HTML";
 
 static const char PAGE_FORM[] PROGMEM = R"HTML(
 <form method="POST" action="/save">
 <label>WiFi network</label><select name="ssid_sel" onchange="document.getElementById('ssid').value=this.value">%SCAN%</select>
 <label>or type SSID</label><input id="ssid" name="ssid" value="%SSID%" placeholder="network name">
-<label>WiFi password</label><input name="pass" type="password" value="%PASS%">
-<label>Gemini API key(s) <small>one per line; rotates on quota</small></label><textarea name="key" rows="3" placeholder="AIza...">%KEY%</textarea>
+<label>WiFi password</label><input name="pass" type="password" placeholder="%PASS%">
+<label>Gemini API key(s) <small>one per line; rotates on quota</small></label><textarea name="key" rows="3" placeholder="%KEY%"></textarea>
 <label>Your name (optional)</label><input name="name" value="%NAME%">
 <div class="row"><div><label>Voice replies</label><select name="voice"><option value="1" %V1%>on</option><option value="0" %V0%>off</option></select></div>
 <div><label>Voice</label><select name="tvoice">%VOICES%</select></div></div>
@@ -53,16 +53,15 @@ static String htmlEscape(const String& s) {
 }
 
 void DianaSetup::handleRoot() {
-    String page = FPSTR(PAGE_HEAD);
+    String page = FPSTR(PAGE_HEAD); page.replace("%ID%", DIANA_ID);
     String form = FPSTR(PAGE_FORM);
     String first = Config.wifi.empty() ? "" : Config.wifi[0].ssid;
     String firstPass = Config.wifi.empty() ? "" : Config.wifi[0].pass;
     form.replace("%SCAN%", _scanOptions);
     form.replace("%SSID%", htmlEscape(first));
-    form.replace("%PASS%", htmlEscape(firstPass));
-    String allKeys;
-    for (auto& k : Config.apiKeys) { allKeys += k; allKeys += "\n"; }
-    form.replace("%KEY%", htmlEscape(allKeys));
+    // Secrets are never sent back to the browser: blank = keep what is stored.
+    form.replace("%PASS%", firstPass.length() ? "(unchanged - leave blank to keep)" : "");
+    form.replace("%KEY%", Config.apiKeyCount() ? String(Config.apiKeyCount()) + " key(s) saved - paste here to add more" : "AIza...");
     form.replace("%NAME%", htmlEscape(Config.userName));
     form.replace("%MODEL%", htmlEscape(Config.chatModel));
     form.replace("%TZ%", htmlEscape(Config.tz));
@@ -85,7 +84,10 @@ void DianaSetup::handleSave() {
     String pass = server->arg("pass");
     String key = server->arg("key");
     key.trim();
-    if (ssid.length()) Config.setWifi(ssid, pass);
+    if (ssid.length()) {
+        if (pass.isEmpty() && !Config.wifi.empty() && Config.wifi[0].ssid == ssid) pass = Config.wifi[0].pass;   // blank = keep
+        Config.setWifi(ssid, pass);
+    }
     // key field may hold several keys separated by newlines/commas/spaces
     key.replace(",", "\n");
     key.replace(" ", "\n");
@@ -106,7 +108,7 @@ void DianaSetup::handleSave() {
     Config.chatModel = server->arg("model");
     Config.tz = server->arg("tz");
     bool ok = Config.save(SD.cardSize() > 0);
-    String page = FPSTR(PAGE_HEAD);
+    String page = FPSTR(PAGE_HEAD); page.replace("%ID%", DIANA_ID);
     page += ok ? "<div class=\"ok\">Saved. Diana is rebooting and will connect to <b>" + htmlEscape(ssid) + "</b>.<br><br>You can close this page.</div></body></html>"
                : "<div class=\"ok\" style=\"border-color:#f33;color:#f33\">Could not save the configuration.</div></body></html>";
     server->send(200, "text/html; charset=utf-8", page);
@@ -127,7 +129,7 @@ bool DianaSetup::start() {
     }
     WiFi.scanDelete();
     WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-    if (!WiFi.softAP(SETUP_AP_SSID)) return false;
+    if (!WiFi.softAP(SETUP_AP_SSID, psk().c_str())) return false;
     delay(200);
     dns = new DNSServer();
     dns->start(53, "*", IPAddress(192, 168, 4, 1));
@@ -163,3 +165,11 @@ bool DianaSetup::loop() {
 }
 
 int DianaSetup::clients() { return WiFi.softAPgetStationNum(); }
+
+// WPA2 key for the setup AP: stable per device (from the MAC) and shown on the screen, so the
+// portal - which accepts new credentials - is not an open network anyone nearby can join.
+String DianaSetup::psk() {
+    uint8_t mac[6]; WiFi.macAddress(mac);
+    char b[16]; snprintf(b, sizeof(b), "%s%02x%02x", SETUP_AP_PSK_PREFIX, mac[4], mac[5]);
+    return String(b);
+}

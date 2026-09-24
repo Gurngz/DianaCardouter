@@ -50,9 +50,6 @@ public:
     // Drop the most recent user turn (and anything after it) — for ignored wake-word misses.
     void rollbackLastUserTurn();
 
-    // Text-to-speech -> raw 16-bit 24 kHz PCM written to outPath. Returns bytes written.
-    bool tts(const String& text, const char* outPath, size_t& bytesOut, String& err);
-
     // Streaming TTS: audio chunks (16-bit 24 kHz PCM) are delivered to onPcm as they
     // arrive over SSE, so playback can start ~1-2 s in instead of after the whole clip.
     // tick() is polled between chunks; return false to abort. Returns true if any audio played.

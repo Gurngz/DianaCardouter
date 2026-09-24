@@ -22,21 +22,22 @@ public:
     String ttsStyle    = "";      // empty -> DEFAULT_TTS_STYLE
     String userName    = "";
     String tz          = "";      // POSIX TZ string, e.g. "JST-9" (empty -> from ip-api)
-    String font        = "jp";    // "jp" = multilingual efont (EN/FR/ES/JP), "ascii" = plain Font0
-    String thinkingLevel = "minimal"; // Gemini 3.x thinkingLevel; "" = model default
-    bool   voiceEnabled = true;
-    bool   bootMusic    = true;
-    bool   autoWake     = false;  // skip standby screen after boot
-    bool   autoStop     = true;   // stop recording on silence
-    bool   handsFree    = true;   // continuous listening; say the wake word instead of pressing TAB
-    bool   voiceWake    = true;   // while asleep, listen for the spoken wake phrase (uses cloud transcription)
-    String wakeWord     = "diana";
+    String font        = DEFAULT_FONT;
+    String thinkingLevel = DEFAULT_THINKING_LEVEL; // Gemini 3.x thinkingLevel; "" = model default
+    bool   voiceEnabled = DEFAULT_VOICE_ENABLED;
+    bool   bootMusic    = DEFAULT_BOOT_MUSIC;
+    bool   autoWake     = DEFAULT_AUTO_WAKE;   // stored for config compatibility; boot always wakes (PTT mode)
+    bool   autoStop     = DEFAULT_AUTO_STOP;   // stop recording on silence
+    bool   handsFree    = DEFAULT_HANDS_FREE;  // continuous listening while awake
+    bool   voiceWake    = DEFAULT_VOICE_WAKE;  // stored for config compatibility; spoken wake from standby is not implemented
+    String wakeWord     = DEFAULT_WAKE_WORD;
     int    micGain      = DEFAULT_MIC_GAIN;
-    int    volume       = 200;    // 0-255
-    int    brightness   = 160;    // 0-255
-    int    vadThreshold = 550;    // RMS level that counts as speech
-    int    silenceMs    = 1200;   // silence after speech that ends a recording
-    int    idleSleepSec = 60;     // auto-return to standby after this many idle seconds (0 = never)
+    int    volume       = DEFAULT_VOLUME;      // 0-255
+    int    brightness   = DEFAULT_BRIGHTNESS;  // 0-255
+    int    vadThreshold = DEFAULT_VAD_THRESHOLD; // RMS level that counts as speech
+    int    silenceMs    = DEFAULT_SILENCE_MS;  // silence after speech that ends a recording
+    int    idleSleepSec = DEFAULT_IDLE_SLEEP_SEC; // stored for config compatibility; auto-sleep is not implemented
+    int    configVersion = 0;     // last migration applied (see CONFIG_VERSION)
 
     bool loaded = false;          // true when apiKey present
     bool fromSd = false;

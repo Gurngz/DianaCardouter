@@ -1,4 +1,5 @@
 #include "DianaGemini.h"
+#include "DianaJson.h"
 #include "DianaConfig.h"
 #include "DianaTools.h"
 #include "Base64Stream.h"
@@ -29,24 +30,7 @@ static bool logGeminiError(const char* where, const char* model, int status, con
     return rate;
 }
 
-String DianaGemini::jsonEscape(const String& s) {
-    String o;
-    o.reserve(s.length() + 8);
-    for (size_t i = 0; i < s.length(); ++i) {
-        char c = s[i];
-        switch (c) {
-            case '"':  o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
-            case '\n': o += "\\n"; break;
-            case '\r': break;
-            case '\t': o += "\\t"; break;
-            default:
-                if ((unsigned char)c < 0x20) break;
-                o += c;
-        }
-    }
-    return o;
-}
+String DianaGemini::jsonEscape(const String& s) { return jsonEscaped(s); }
 
 // ───────────────────────────── history ───────────────────────────────────
 void DianaGemini::pushHistory(const String& contentJson) {
@@ -60,7 +44,8 @@ void DianaGemini::trimHistory() {
         for (auto& h : _history) n += h.length();
         return n;
     };
-    while (!_history.empty() && ((int)_history.size() > HISTORY_MAX_TURNS * 2 || totalChars() > HISTORY_MAX_CHARS)) {
+    // never drop the newest entry: a large tool-call turn must survive so its functionResponse has a parent
+    while (_history.size() > 1 && ((int)_history.size() > HISTORY_MAX_TURNS * 2 || totalChars() > HISTORY_MAX_CHARS)) {
         _history.erase(_history.begin());
     }
     // the conversation must start with a plain user turn (not a tool result, not a model turn)
@@ -311,76 +296,6 @@ bool DianaGemini::sendFunctionResponses(const std::vector<FunctionResponse>& res
     head += turn;
     _pendingUserTurn = turn;
     return callModel(head, nullptr, 0, requestTail(), out);
-}
-
-// ───────────────────────────── TTS ───────────────────────────────────────
-bool DianaGemini::tts(const String& text, const char* outPath, size_t& bytesOut, String& err) {
-    bytesOut = 0;
-    String body = "{\"contents\":[{\"parts\":[{\"text\":\"";
-    body += jsonEscape(String(Config.ttsStyleOrDefault()) + text);
-    body += "\"}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"";
-    body += jsonEscape(Config.ttsVoiceOrDefault());
-    body += "\"}}}}}";
-    String path = String("/v1beta/models/") + Config.ttsModelOrDefault() + ":generateContent";
-
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        if (attempt) { _http.close(); delay(300); }
-        if (!_http.begin(GEMINI_HOST, "POST", path, body.length(), Config.apiKey.c_str())) { err = _http.lastError; continue; }
-        if (_http.writeStr(body) != body.length()) { err = "write failed"; continue; }
-        int status = _http.finishRequest(60000);
-        if (status < 0) { err = _http.lastError; continue; }
-        if (status != 200) {
-            String b = _http.readBodyToString(3000);
-            JsonDocument ed;
-            if (!deserializeJson(ed, b) && ed["error"]["message"].is<const char*>()) err = String("TTS HTTP ") + status + ": " + (const char*)ed["error"]["message"];
-            else err = String("TTS HTTP ") + status;
-            return false;
-        }
-        File f = SD.open(outPath, FILE_WRITE);
-        if (!f) { err = "cannot write tts file"; _http.drain(); return false; }
-        // stream-scan for  "data": "<base64>"  and decode on the fly
-        static const char KEY[] = "\"data\"";
-        int keyPos = 0;
-        int state = 0;               // 0 find key, 1 find opening quote, 2 decode, 3 done
-        Base64Decoder dec;
-        char in[512];
-        uint8_t out[400];
-        while (state < 3) {
-            size_t r = _http.readBytes(in, sizeof(in));
-            if (r == 0) break;
-            size_t i = 0;
-            while (i < r && state < 3) {
-                char c = in[i];
-                if (state == 0) {
-                    keyPos = (c == KEY[keyPos]) ? keyPos + 1 : (c == KEY[0] ? 1 : 0);
-                    if (KEY[keyPos] == '\0') { state = 1; keyPos = 0; }
-                    ++i;
-                } else if (state == 1) {
-                    if (c == '"') state = 2;
-                    ++i;
-                } else {  // state 2: decode until closing quote
-                    size_t j = i;
-                    while (j < r && in[j] != '"') ++j;
-                    size_t n = dec.feed(in + i, j - i, out);
-                    // dec.feed writes at most 3*(j-i)/4+3 bytes; chunk input so `out` cannot overflow
-                    if (n) { f.write(out, n); bytesOut += n; }
-                    if (j < r) { state = 3; }
-                    i = j + (j < r ? 1 : 0);
-                }
-            }
-        }
-        size_t n = dec.finish(out);
-        if (n) { f.write(out, n); bytesOut += n; }
-        f.close();
-        _http.drain();
-        if (state < 2 || bytesOut < 480) {
-            err = bytesOut ? "tts: too short" : "tts: no audio in reply";
-            return false;
-        }
-        return true;
-    }
-    if (err.isEmpty()) err = "tts: connection failed";
-    return false;
 }
 
 // ─────────────────────────── streaming TTS ───────────────────────────────

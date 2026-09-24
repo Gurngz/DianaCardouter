@@ -1,29 +1,17 @@
 #include "DianaLive.h"
 #include "esp_random.h"
 #include "Base64Stream.h"
+#include "DianaJson.h"
+#include "DianaHttp.h"
+#include "config.h"
 
 DianaLive GeminiLive;
 
-static const char*    LIVE_HOST  = "generativelanguage.googleapis.com";
+static const char*    LIVE_HOST  = GEMINI_HOST;
 static const uint16_t LIVE_PORT  = 443;
-static const char*    LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025";
 
 // ── small helpers ─────────────────────────────────────────────────────────────
-static void jsonEscape(String& out, const String& s) {
-    for (size_t i = 0; i < s.length(); ++i) {
-        char c = s[i];
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if ((uint8_t)c < 0x20) { char b[8]; snprintf(b, sizeof(b), "\\u%04x", c); out += b; }
-                else out += c;
-        }
-    }
-}
+static inline void jsonEscape(String& out, const String& s) { jsonEscapeTo(out, s); }
 
 static bool readN(WiFiClientSecure& c, uint8_t* buf, size_t n, uint32_t toMs) {
     size_t got = 0; uint32_t t0 = millis();
@@ -109,7 +97,8 @@ bool DianaLive::usable(const String& voice, const String& style, const String& l
 // done once; speak() reuses the open session afterwards.
 bool DianaLive::openSession(const String& voice, const String& style, const String& langCode, const char* apiKey, String& err) {
     closeSession();
-    _ws.setInsecure();
+    if (HttpsStream::caCert().length()) _ws.setCACert(HttpsStream::caCert().c_str());   // honour /diana/ca.pem like the REST client
+    else _ws.setInsecure();
     _ws.setTimeout(15);
     if (!_ws.connect(LIVE_HOST, LIVE_PORT)) { lastStatus = -1; err = "live: connect failed"; return false; }
 
@@ -121,7 +110,8 @@ bool DianaLive::openSession(const String& voice, const String& style, const Stri
                + "Sec-WebSocket-Key: " + keyb64 + "\r\nSec-WebSocket-Version: 13\r\n\r\n";
     _ws.print(req);
     String status = _ws.readStringUntil('\n');
-    lastStatus = (status.indexOf(" 101") >= 0) ? 101 : status.toInt();
+    // "HTTP/1.1 403 Forbidden" -> 403 (toInt() on the whole line always gave 0)
+    { int sp = status.indexOf(' '); lastStatus = sp > 0 ? status.substring(sp + 1).toInt() : 0; }
     if (status.indexOf("101") < 0) { err = "live: upgrade failed: " + status; closeSession(); return false; }
     while (_ws.connected()) { String l = _ws.readStringUntil('\n'); if (l == "\r" || l.length() <= 1) break; }
 
@@ -135,8 +125,8 @@ bool DianaLive::openSession(const String& voice, const String& style, const Stri
     // speechConfig carries the prebuilt voice AND (crucially) the target languageCode, so the
     // voice speaks with a NATIVE accent instead of an English-leaning default.
     String speechCfg = String("\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"") +
-                       (voice.length() ? voice : String("Leda")) + "\"}}";
-    if (langCode.length()) speechCfg += String(",\"languageCode\":\"") + langCode + "\"";
+                       jsonEscaped(voice.length() ? voice : String(DEFAULT_TTS_VOICE)) + "\"}}";
+    if (langCode.length()) speechCfg += String(",\"languageCode\":\"") + jsonEscaped(langCode) + "\"";
     String setup = String("{\"setup\":{\"model\":\"") + LIVE_MODEL +
                    "\",\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{" + speechCfg +
                    "}},\"systemInstruction\":{\"parts\":[{\"text\":\"";
