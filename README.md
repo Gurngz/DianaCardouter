@@ -99,19 +99,69 @@ device setting, `tune@` / `tune!` / `tunes` / `cfg-save`, `timer ( secs label --
 
 ## Build it yourself
 
-Requires PlatformIO (`pip install platformio` or `pipx install platformio`). The platform is pinned
-to `espressif32@6.13.0` (Arduino core 2.0.17); an unpinned `espressif32` can resolve to a pioarduino
-core 3.x install and fail with `Network.h: No such file`. GitHub Actions builds every push and PR
-(`.github/workflows/build.yml`) and attaches `firmware.bin` as an artifact.
+### Prerequisites
+
+- Python 3 and PlatformIO: `pipx install platformio` (or `pip install platformio`). The VS Code
+  PlatformIO extension works too; `.vscode/extensions.json` recommends it.
+- Nothing else to install by hand. The first `pio run` downloads the pinned toolchain
+  (`espressif32@6.13.0`, Arduino core 2.0.17) and the libraries in `platformio.ini`
+  (M5Unified, M5GFX, M5Cardputer 1.2.0, ArduinoJson 7, IRremoteESP8266) into `.pio/`.
+- Keep the platform pinned. An unpinned `espressif32` can resolve to a pioarduino core 3.x install
+  from another project and fail with `Network.h: No such file or directory`.
+
+### Build
 
 ```bash
-pio run                          # → .pio/build/cardputer-adv/firmware.bin
-pio run -t upload                # flash over USB-C instead of the launcher
-python tools/make_boot_wav.py    # theme MP3 → sdcard/diana/boot.wav (16 kHz mono, 14 s)
-python tools/package_sd.py       # build + sdcard/Diana.bin + build/*.bin + build/Diana-SD-<ver>.zip
+pio run                                  # -> .pio/build/cardputer-adv/firmware.bin (about 1.9 MB)
+pio run -e cardputer-adv -t clean        # start over
+PLATFORMIO_BUILD_FLAGS="-DDIANA_DEBUG_CONSOLE=0" pio run   # without the '!' codec-register serial commands
 ```
 
-`build/Diana-cardputer-adv-<ver>-full.bin` is a merged image for `esptool.py write_flash 0x0 …` or web flashers.
+The linker map lands in `.pio/build/cardputer-adv/firmware.map`; `docs/espidforth-port-assessment.md`
+has a per-library flash/RAM breakdown from it. Current figures: 60% of the 3 MB OTA slot, 69 KB static RAM.
+
+### Package for the SD card
+
+```bash
+python tools/package_sd.py               # builds, then writes:
+#   sdcard/Diana.bin                        app image for M5Launcher
+#   build/Diana-cardputer-adv-<ver>.bin     same app image
+#   build/Diana-cardputer-adv-<ver>-full.bin  merged bootloader+partitions+app for esptool / web flashers at 0x0
+#   build/Diana-SD-<ver>.zip                the sdcard/ folder zipped
+python tools/package_sd.py --no-build    # package the last build
+python tools/make_boot_wav.py            # theme MP3 -> sdcard/diana/boot.wav (16 kHz mono, 14 s)
+```
+
+The version comes from `DIANA_VERSION` in `platformio.ini`. The merged image is built with
+PlatformIO's own Python (esptool's dependencies live there); if that step fails the SD package is
+still produced.
+
+### Install
+
+| Method | Command / steps | Keeps M5Launcher? |
+|---|---|---|
+| **SD card via M5Launcher** (normal) | copy `sdcard/*` to the card root, Launcher → OTA → SD card → `Diana.bin` | yes |
+| **USB into the launcher's app slot** (what the launcher does, from a cable) | `~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 --port /dev/cu.usbmodem101 --baud 921600 write_flash 0x170000 .pio/build/cardputer-adv/firmware.bin` | yes |
+| **USB full flash** (no launcher) | `pio run -t upload`, or esptool `write_flash 0x0 build/Diana-cardputer-adv-<ver>-full.bin` | **no** (replaces bootloader + partitions; reflash the launcher to get it back) |
+
+The `0x170000` offset is where M5Launcher keeps the installed app (`ota_0` in its partition table);
+check it on your unit before trusting it: `esptool.py --port ... read_flash 0x8000 0xc00 pt.bin`.
+Find the port with `pio device list` (the Cardputer ADV shows as "USB JTAG/serial debug unit").
+
+### Watch it run
+
+```bash
+pio device monitor                       # 115200 baud; every boot step, tool call, HTTP status and heap figure
+```
+
+Over the same serial link: `/command`s work, plain text talks to her, `forth` … `bye` opens the Forth
+REPL (see "Forth scripting" above). A fresh device with no `diana/config.json` boots into the setup
+portal; its WPA2 password is on the screen.
+
+### Continuous integration
+
+`.github/workflows/build.yml` builds every push to `main` and every pull request with the same
+pinned platform, prints the image size, and uploads `firmware.bin` as an artifact.
 
 ### Layout
 
