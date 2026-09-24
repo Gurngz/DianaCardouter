@@ -63,14 +63,16 @@ bool DianaConfig::load(bool sdAvailable) {
     loaded = false;
     fromSd = false;
     apiKeys.clear();
+    bool hadConfig = false;
     if (sdAvailable && loadFromSd()) {
-        fromSd = true;
+        fromSd = true; hadConfig = true;
     } else {
-        loadFromNvs();
+        hadConfig = loadFromNvs();
     }
     // Union any keys stored in NVS (baked-in keys augment whatever the SD card has).
     mergeNvsKeys();
     // One-off migrations, applied once per config (gated so /mic and silence_ms edits survive a reboot).
+    if (!hadConfig) configVersion = CONFIG_VERSION;   // fresh device: defaults are already current
     if (configVersion < 2) {
         if (ttsModel == "gemini-2.5-flash-preview-tts") ttsModel = "";   // free-tier-throttled -> streaming 3.1
         if (silenceMs > 900) silenceMs = 700;          // snappier end-of-speech from older configs

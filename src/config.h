@@ -65,7 +65,7 @@
 #define DEFAULT_VOLUME          200
 #define DEFAULT_BRIGHTNESS      160
 #define DEFAULT_VAD_THRESHOLD   550
-#define DEFAULT_SILENCE_MS      1200
+#define DEFAULT_SILENCE_MS      700        // the pre-migration code forced 700 on every boot; keep that as the default
 #define DEFAULT_IDLE_SLEEP_SEC  60
 #define DEFAULT_VOICE_ENABLED   true
 #define DEFAULT_BOOT_MUSIC      true
