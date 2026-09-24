@@ -357,6 +357,12 @@ void DianaAudio::streamBegin() {
     for (int i = 0; i < 3; ++i) {
         if (!_sBuf[i]) _sBuf[i] = (int16_t*)malloc(STREAM_CHUNK_SAMPLES * sizeof(int16_t));
     }
+    if (!_sBuf[0] || !_sBuf[1] || !_sBuf[2]) {      // no PSRAM: 14.4 KB can fail mid-TLS
+        Serial.printf("[AUDIO] stream buffers unavailable (heap=%u)\n", ESP.getFreeHeap());
+        for (int i = 0; i < 3; ++i) { free(_sBuf[i]); _sBuf[i] = nullptr; }
+        _streaming = false;
+        return;
+    }
     _sIdx = 0;
     _sAccBytes = 0;
     _sFilled = 0;
@@ -375,7 +381,7 @@ void DianaAudio::submitStreamBuf(int idx, size_t samples, std::function<bool()> 
 }
 
 bool DianaAudio::streamFeed(const uint8_t* pcm, size_t len, std::function<bool()> tick) {
-    if (!_streaming || !_sBuf[0]) return false;
+    if (!_streaming || !_sBuf[0] || !_sBuf[1] || !_sBuf[2]) return false;
     const size_t chunkBytes = STREAM_CHUNK_SAMPLES * sizeof(int16_t);
     while (len > 0) {
         int16_t* buf = _sBuf[_sIdx];
@@ -429,6 +435,7 @@ void DianaAudio::streamEnd(std::function<bool()> tick) {
         delay(5);
         if (tick && !tick()) { M5.Speaker.stop(0); break; }
     }
+    if (M5.Speaker.isPlaying(0)) M5.Speaker.stop(0);   // timed out: don't free buffers the DAC still reads
     delay(20);
     for (int i = 0; i < 3; ++i) { free(_sBuf[i]); _sBuf[i] = nullptr; }
     _streaming = false;

@@ -167,6 +167,8 @@ static String applyDeviceSetting(const String& settingIn, const String& valueIn)
 }
 
 static String addTimer(int seconds, const String& label) {
+    if (seconds <= 0 || seconds > TIMER_MAX_SECONDS)
+        return "Error: timer must be 1 second to 7 days.";
     for (auto& t : timers) {
         if (!t.active) {
             t.active = true;
@@ -472,7 +474,7 @@ static void runTurn(const String& text, const char* audioPath, size_t audioBytes
                   (unsigned long)(millis() - t0), ESP.getFreeHeap(), ok, res.status, (int)res.calls.size(),
                   res.error.length() ? " err=" : "", res.error.c_str());
 
-    for (int round = 0; round < 4; ++round) {
+    for (int round = 0; ; ++round) {
         if (!ok) {
             UI.log(res.error.length() ? res.error : String("neural link error"), 'e');
             Audio.chirpError();
@@ -480,6 +482,7 @@ static void runTurn(const String& text, const char* audioPath, size_t audioBytes
         }
         if (res.text.length()) handleReplyText(res.text, fromVoice && round == 0);
         if (res.calls.empty()) break;
+        if (round >= MAX_TOOL_ROUNDS) { UI.log("tool round limit reached", 'w'); break; }
 
         // execute tools
         std::vector<FunctionResponse> responses;
@@ -642,7 +645,7 @@ static bool handleCommand(const String& lineIn) {
     else if (cmd == "/key" || cmd == "/addkey") { if (arg.length() < 12) { UI.log("usage: /key <gemini api key>", 'w'); return true; } Config.addApiKey(arg); Config.syncActiveKey(); Config.save(sdOk); UI.log("api key added (" + String(Config.apiKeyCount()) + " total)", 's'); }
     else if (cmd == "/keys") { UI.log(String("api keys: ") + Config.apiKeyCount() + ", active #" + Config.apiKeyIndex, 's'); }
     else if (cmd == "/nextkey") { UI.log(Config.rotateApiKey() ? "switched to key #" + String(Config.apiKeyIndex) : "only one key", 's'); }
-    else if (cmd == "/delkey") { int n = arg.toInt(); if (Config.removeApiKey(n)) { Config.save(sdOk); UI.log("removed key #" + String(n) + " (" + Config.apiKeyCount() + " left)", 's'); } else UI.log("no key #" + String(n) + " (have " + Config.apiKeyCount() + ")", 'w'); }
+    else if (cmd == "/delkey") { if (arg.isEmpty() || !isDigit(arg[0])) { UI.log("usage: /delkey <index> (see /keys)", 'w'); return true; } int n = arg.toInt(); if (Config.removeApiKey(n)) { Config.save(sdOk); UI.log("removed key #" + String(n) + " (" + Config.apiKeyCount() + " left)", 's'); } else UI.log("no key #" + String(n) + " (have " + Config.apiKeyCount() + ")", 'w'); }
     else if (cmd == "/font") { String a = arg; a.toLowerCase(); Config.font = (a == "ascii") ? "ascii" : "jp"; UI.setFont(Config.font != "ascii"); Config.save(sdOk); UI.log(Config.font == "ascii" ? "font: plain ASCII" : "font: multilingual (EN/FR/ES/JP)", 's'); }
     else if (cmd == "/name") { Config.userName = arg; Config.save(sdOk); UI.log("name: " + arg, 's'); }
     else if (cmd == "/voice") {
@@ -868,6 +871,12 @@ static void handleKeys() {
 }
 
 // ── timers ───────────────────────────────────────────────────────────────────
+static bool timerDue() {
+    uint32_t now = millis();
+    for (auto& t : timers) if (t.active && (int32_t)(now - t.endMs) >= 0) return true;
+    return false;
+}
+
 static void serviceTimers() {
     uint32_t now = millis();
     for (auto& t : timers) {
@@ -1194,7 +1203,8 @@ void loop() {
                 UI.setState(DianaState::IDLE);
             }
         }
-        return;   // tight loop: skip the heavy tail while the mic is live (that's the chop fix)
+        if (!timerDue()) return;   // tight loop: skip the heavy tail while the mic is live (that's the chop fix)
+        Audio.stopListening(); UI.setListening(false, 0);   // a timer fired: fall through so serviceTimers() runs
     }
     if (Config.handsFree && Audio.isListening()) { Audio.stopListening(); UI.setListening(false, 0); }
 

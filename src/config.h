@@ -49,6 +49,8 @@
 #define MEMORY_VALUE_MAX    280
 #define REPLY_MAX_TOKENS    220        // short replies: fewer output tokens + shorter/faster TTS
 #define HTTP_TIMEOUT_MS     25000
+#define MAX_TOOL_ROUNDS     4          // model->tool->model cycles per turn before giving up
+#define TIMER_MAX_SECONDS   (7 * 86400) // millis() wraps at ~24.8 days; keep timers well inside
 
 // ── Gemini ─────────────────────────────────────────────────────────────────
 #define GEMINI_HOST         "generativelanguage.googleapis.com"
