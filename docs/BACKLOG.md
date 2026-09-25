@@ -52,7 +52,11 @@ move an item to **Done** with its commit when it lands.
    - Keep the model's `device_settings` tool **unable** to change models:
      a prompt-injected bad id would take Diana offline.
 
-3. **Personas.** Adopt the DianaXR persona system: one spec document per
+3. **Personas.** Source of truth: **RobotAR.me** (IoTone Japan). Persona
+   configurations and rules live there; the build fetches them and bakes them
+   into the firmware. The free edition ships a baked-in set; paid editions get a
+   premium setup with more personas and features. For now the project and the
+   free set are open source. Adopt the DianaXR persona system: one spec document per
    character, each with a named owner, and the device builds the prompt from the
    spec instead of hard-coding it. Format and governance come from
    `../DianaXR/personas/README.md`; `../DianaXR/personas/diana.md` is the worked
@@ -74,19 +78,37 @@ move an item to **Done** with its commit when it lands.
      style prefix, mood-to-style table, and optional per-language voice. The
      user's `/voice` still overrides. Candidate voices must be auditioned on the
      device, not picked from descriptions. This builds on item 2.
-   - **Runtime selection fits the SD card.** Keep persona specs as files in
-     `/diana/personas/<name>.md`, selected with `/persona <name>`, the menu,
-     and the setup portal, and never through a model tool. A default persona
-     stays compiled in for when there's no card.
-     - **Budget:** the character block goes into every request, so cap it at
-       about 2.5 KB. The current Diana prompt is the reference size.
-     - **Memory:** decide whether memory and chat history are per persona or
-       shared. Jeeves shouldn't inherit Diana's "we talked about…"
+   - **Build-time fetch from RobotAR.me.** A pre-build step (PlatformIO
+     `extra_scripts`, e.g. `tools/fetch_personas.py`) pulls the persona set for
+     the edition being built and generates a header the firmware compiles in.
+     - **Pin and cache:** a lockfile records the persona set version and
+       checksums; the fetched copy is cached so builds are reproducible and work
+       offline. A changed checksum fails the build instead of silently shipping
+       different characters.
+     - **Editions as build environments:** `cardputer-adv` (free, public set)
+       and a premium env that fetches the paid set with a credential from the
+       environment. Nothing premium is ever committed to this repo.
+     - **Budget:** each character block goes into every request, so cap it at
+       about 2.5 KB (the current Diana prompt is the reference). The fetch step
+       enforces it.
+     - **Selection:** `/persona <name>`, the settings menu, and the setup portal
+       choose among the baked-in personas; never a model tool. Memory and chat
+       history per persona or shared is still to decide; Jeeves should not
+       inherit Diana's "we talked about…".
+   - **Needs from RobotAR.me before the build step can exist:** an endpoint or
+     repo path, a persona file format (DianaXR's nine-section Markdown, or a
+     structured form of it with the voice bindings as fields), versioning, and
+     how the premium set is authenticated.
+   - ⚠️ **Open source vs premium.** The firmware repo is public, so anything
+     that gates premium must live outside it: the premium persona content (fetched
+     only with a credential) or a runtime entitlement check. A premium feature
+     that is only a compile flag in public code is not gated. Decide which before
+     the premium env is built.
    - **Roster**, each needing an owner before it ships:
 
      | Persona | Status | Notes |
      |---|---|---|
-     | **Diana** | exists (DianaXR v8.0, owner Dipen) | Transcribe the Cardputer edition as a derivative of `diana.md`; don't fork. Decide whether `personas/` moves to a shared Diana Core location so every product reads one copy. |
+     | **Diana** | exists (DianaXR v8.0, owner Dipen) | Moves to RobotAR.me as a derivative of DianaXR `diana.md`, not a fork. DianaXR should read the same copy eventually. |
      | **Jeeves** | concept, not fleshed out | The premium, more serious persona in the DianaXR README. Needs canon, restraints, and a voice. |
      | **HAL 9000-inspired** | idea | Calm, even, unfailingly polite, and precise. Restraints must rule out the menace and refusal that define the original. |
      | **Cortana-inspired** | idea | Capable, dry humor, a partner rather than a servant. |
@@ -97,10 +119,11 @@ move an item to **Done** with its commit when it lands.
      names and lines. Keep the inspiration in the canon section of the spec,
      never in user-facing text or the prompt. Pragmata's Diana is an existing
      product decision, outside this item.
-   - Output: `docs/personas/README.md` (points at or adopts DianaXR's
-     governance), a `diana-cardputer.md` derivative, stub specs for the others
-     with §9 open questions for their owners, then the code change to
-     `Prompt = character + capability + live`.
+   - Output, in order: agree the RobotAR.me format with IoTone Japan; the
+     fetch step with lockfile, cache and size check; the code change to
+     `Prompt = character (baked) + capability + live`; Diana transcribed as the
+     first entry in RobotAR.me (a derivative of DianaXR `diana.md`, not a fork);
+     stub specs for the others with §9 open questions for their owners.
 
 4. **Make Gemini Live a build option** (`-DDIANA_LIVE=0`). Drops the second TLS
    session (~70–90 KB heap while awake) and `keepAlive` from the loop; the REST
