@@ -8,8 +8,83 @@
 
 DianaAudio Audio;
 
+// ── ES8311 power sequencing (Cardputer ADV) ──────────────────────────────────
+// The pop before every reply was the codec's analog stage being cycled: M5Unified's
+// mic-disable callback powers the whole ES8311 down (0x0D=0xFC, CSM off), and its
+// speaker-enable callback powers it back up with the DAC already at 0 dB. The output
+// bias collapses and recharges through the live amp each time. These replacements keep
+// the analog stage (0x0D) and state machine (0x00) up across mode switches, only gate
+// the ADC for the mic, and bring the DAC up muted so speakerMode()'s ramp starts from
+// silence. Register values are M5Unified's own; only the ordering and the power-down
+// differ. Tune.codecHold = 0 restores the library behaviour for an A/B by ear.
+static constexpr uint8_t ES8311_ADDR = 0x18;
+
+static bool es8311Write(const uint8_t* seq) {
+    bool ok = true;
+    for (; seq[0]; seq += 2) {
+        bool w = false;
+        for (int r = 0; r < 3 && !w; ++r) w = M5.In_I2C.writeRegister8(ES8311_ADDR, seq[0], seq[1], 100000);
+        ok &= w;
+    }
+    return ok;
+}
+
+static bool micEnableCb(void*, bool enabled) {
+    static const uint8_t on[] = {
+        0x00, 0x80,   // CSM power on
+        0x01, 0xBA,   // clock manager (ADC)
+        0x02, 0x18,   // MULT_PRE=3
+        0x0D, 0x01,   // analog up (already up when codecHold)
+        0x0E, 0x02,   // PGA + ADC modulator on
+        0x14, 0x10,   // Mic1p-Mic1n, PGA min
+        0x17, 0xBF,   // ADC volume 0 dB
+        0x1C, 0x6A,   // ADC EQ bypass, DC-offset cancel
+        0 };
+    static const uint8_t offHold[] = {
+        0x0E, 0x6A,   // PGA + ADC off; analog stage and CSM stay powered
+        0 };
+    static const uint8_t offFull[] = {
+        0x0D, 0xFC, 0x0E, 0x6A, 0x00, 0x00,   // M5Unified default: full power-down
+        0 };
+    return es8311Write(enabled ? on : (Tune.codecHold ? offHold : offFull));
+}
+
+static bool speakerEnableCb(void*, bool enabled) {
+    if (!enabled) return true;   // same as M5Unified: nothing on disable
+    static const uint8_t onMuted[] = {
+        0x00, 0x80,   // CSM power on
+        0x01, 0xB5,   // clock manager (DAC)
+        0x02, 0x18,   // MULT_PRE=3
+        0x0D, 0x01,   // analog up
+        0x32, 0x00,   // DAC volume MUTED before the DAC and driver come up
+        0x12, 0x00,   // DAC power up
+        0x13, 0x10,   // HP driver on
+        0x37, 0x08,   // bypass DAC EQ
+        0 };
+    static const uint8_t onDefault[] = {
+        0x00, 0x80, 0x01, 0xB5, 0x02, 0x18, 0x0D, 0x01,
+        0x12, 0x00, 0x13, 0x10, 0x32, 0xBF, 0x37, 0x08,   // M5Unified default order: 0 dB at once
+        0 };
+    return es8311Write(Tune.codecHold ? onMuted : onDefault);
+}
+
+// setCallback() is protected in M5Unified (M5Unified::begin wires the board callbacks).
+// Naming it through a derived class yields a pointer-to-member we may apply to M5.Mic /
+// M5.Speaker - standard C++, no library edit.
+struct MicCbAccess : m5::Mic_Class {
+    static void set(m5::Mic_Class& m, bool (*f)(void*, bool)) { (m.*(&MicCbAccess::setCallback))(nullptr, f); }
+};
+struct SpeakerCbAccess : m5::Speaker_Class {
+    static void set(m5::Speaker_Class& s, bool (*f)(void*, bool)) { (s.*(&SpeakerCbAccess::setCallback))(nullptr, f); }
+};
+
 void DianaAudio::begin(int volume) {
     _volume = volume;
+    if (M5.getBoard() == m5::board_t::board_M5CardputerADV) {
+        MicCbAccess::set(M5.Mic, micEnableCb);
+        SpeakerCbAccess::set(M5.Speaker, speakerEnableCb);
+        Serial.println("[AUDIO] ES8311 callbacks: Diana power sequencing (codec_hold)");
+    }
     // Boost the built-in MEMS mic so Diana hears farther (library default magnification is 16).
     {
         auto mc = M5.Mic.config();
@@ -50,8 +125,8 @@ void DianaAudio::speakerMode() {
     delay(20);
     M5.Speaker.begin();                                   // re-runs the ES8311 enable callback
     M5.Speaker.setVolume(_volume);
-    // Anti-pop soft-start: the enable callback snaps the DAC to full volume, which clicks the amp.
-    // Re-mute, let the bias settle, then ramp the DAC volume up so sound eases in.
+    // Soft-start: the enable callback leaves the DAC muted (codec_hold) - ramp it up so sound
+    // eases in. With codec_hold=0 the library callback snaps to 0 dB first; the re-mute covers that.
     M5.In_I2C.writeRegister8(0x18, 0x32, 0x00, 100000);   // DAC volume -> mute
     delay(12);
     for (int v = 0x40; v < 0xBF; v += 0x1A) {             // ramp up, ~2 ms/step

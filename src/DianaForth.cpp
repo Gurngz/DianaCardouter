@@ -51,6 +51,7 @@ static const TuneEntry TUNES[] = {
     { "rec_max_sec",   &Tune.recMaxSeconds,       2,   60, nullptr,          "longest recording / utterance" },
     { "history_turns", &Tune.historyMaxTurns,     1,   32, nullptr,          "exchanges kept in context" },
     { "history_chars", &Tune.historyMaxChars,   500, 12000, nullptr,         "context size cap" },
+    { "codec_hold",    &Tune.codecHold,           0,    1, nullptr,          "1 = no codec power-down between mic and speaker (anti-pop)" },
 };
 static const TuneEntry* findTune(const String& name) {
     for (auto& t : TUNES) if (name.equalsIgnoreCase(t.name)) return &t;
@@ -59,8 +60,10 @@ static const TuneEntry* findTune(const String& name) {
 }
 
 // ── Diana words ───────────────────────────────────────────────────────────────
-static void w_say()    { String s = popStr(); speakText(s); }                                   // ( addr u -- )
-static void w_ask()    { String s = popStr(); UI.log(s, 'u'); appendChatLog('u', s); g_lastUserMsg = s; runTurn(s, nullptr, 0); }
+// Anything that plays audio must release the hands-free mic first (shared I2S, same as a real turn).
+static void releaseMic() { if (Audio.isListening()) { Audio.stopListening(); UI.setListening(false, 0); } }
+static void w_say()    { String s = popStr(); releaseMic(); speakText(s); }                     // ( addr u -- )
+static void w_ask()    { String s = popStr(); releaseMic(); UI.log(s, 'u'); appendChatLog('u', s); g_lastUserMsg = s; runTurn(s, nullptr, 0); }
 static void w_log()    { UI.log(popStr(), 's'); }
 static void w_set()    { String v = popStr(); String n = popStr(); println(applyDeviceSetting(n, v)); }   // ( name val -- )
 static void w_tuneGet(){ const TuneEntry* t = findTune(popStr()); forth_push(t ? *t->ptr : 0); }         // ( name -- n )
@@ -76,8 +79,8 @@ static void w_cfgSave(){ println(Config.save(sdOk) ? "config saved" : "config sa
 static void w_timer()  { String l = popStr(); int s = (int)forth_pop(); println(addTimer(s, l)); }      // ( secs label -- )
 static void w_ir()     { String p = popStr(); uint32_t c = (uint32_t)forth_pop(); uint32_t a = (uint32_t)forth_pop(); println(dianaIrSend(p, a, c)); }  // ( addr cmd proto -- )
 static void w_irRun()  { println(dianaIrRunNamed(popStr())); }                                        // ( name -- )
-static void w_tone()   { int ms = (int)forth_pop(); int f = (int)forth_pop(); Audio.toneMs((float)f, (uint32_t)ms); }   // ( hz ms -- )
-static void w_beep()   { Audio.chirpAck(); }
+static void w_tone()   { int ms = (int)forth_pop(); int f = (int)forth_pop(); releaseMic(); Audio.toneMs((float)f, (uint32_t)ms); }   // ( hz ms -- )
+static void w_beep()   { releaseMic(); Audio.chirpAck(); }
 static void w_mute()   { muted = forth_pop() != 0; refreshStatusBar(); }                              // ( flag -- )
 static void w_sleep()  { enterStandby(); }
 static void w_wake()   { if (!awake) { UI.showHud(); welcomeProtocol(); } }

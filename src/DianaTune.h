@@ -12,6 +12,7 @@ struct DianaTune {
     int recMaxSeconds      = REC_MAX_SECONDS;        // hard cap on one recording / utterance
     int historyMaxTurns    = HISTORY_MAX_TURNS;      // exchanges kept in context
     int historyMaxChars    = HISTORY_MAX_CHARS;
+    int codecHold          = 1;   // 1 = keep the ES8311 analog stage powered between mic and speaker (no pop); 0 = M5Unified default
 };
 
 extern DianaTune Tune;
