@@ -85,9 +85,11 @@ move an item to **Done** with its commit when it lands.
        checksums; the fetched copy is cached so builds are reproducible and work
        offline. A changed checksum fails the build instead of silently shipping
        different characters.
-     - **Editions as build environments:** `cardputer-adv` (free, public set)
-       and a premium env that fetches the paid set with a credential from the
-       environment. Nothing premium is ever committed to this repo.
+     - **Editions:** this repo builds the free edition (`cardputer-adv`,
+       public persona set). The premium edition is a **separate closed-source
+       repo that depends on this one** (as a submodule or PlatformIO library),
+       adds its own personas and features, and defines its own build
+       environment. Nothing premium lives here, not even an env stub.
      - **Budget:** each character block goes into every request, so cap it at
        about 2.5 KB (the current Diana prompt is the reference). The fetch step
        enforces it.
@@ -98,12 +100,19 @@ move an item to **Done** with its commit when it lands.
    - **Needs from RobotAR.me before the build step can exist:** an endpoint or
      repo path, a persona file format (DianaXR's nine-section Markdown, or a
      structured form of it with the voice bindings as fields), versioning, and
-     how the premium set is authenticated.
-   - ⚠️ **Open source vs premium.** The firmware repo is public, so anything
-     that gates premium must live outside it: the premium persona content (fetched
-     only with a credential) or a runtime entitlement check. A premium feature
-     that is only a compile flag in public code is not gated. Decide which before
-     the premium env is built.
+     how the premium set is authenticated (used only by the premium repo).
+   - **Open source vs premium: decided 2026-09-25.** Premium is closed source
+     in its own repo and depends on this one. What that asks of this repo is
+     a clean seam, not premium code:
+     - a persona registry the build fills from generated code, so another repo
+       can supply more personas without patching ours;
+     - feature hooks (extra tools, commands, Forth words, menu items) that a
+       dependent repo can register at startup, with this repo's defaults
+       working when nothing registers;
+     - a stable public header set for those seams, and a note in the README
+       that it is the extension API, so changes to it are deliberate.
+     The premium repo holds its own credential for fetching the paid persona
+     set from RobotAR.me.
    - **Roster**, each needing an owner before it ships:
 
      | Persona | Status | Notes |
@@ -121,7 +130,8 @@ move an item to **Done** with its commit when it lands.
      product decision, outside this item.
    - Output, in order: agree the RobotAR.me format with IoTone Japan; the
      fetch step with lockfile, cache and size check; the code change to
-     `Prompt = character (baked) + capability + live`; Diana transcribed as the
+     `Prompt = character (baked) + capability + live` with the persona registry
+     and feature hooks as the extension seam; Diana transcribed as the
      first entry in RobotAR.me (a derivative of DianaXR `diana.md`, not a fork);
      stub specs for the others with §9 open questions for their owners.
 
