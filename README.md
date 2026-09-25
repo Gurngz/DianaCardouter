@@ -107,8 +107,7 @@ src/
   DianaSetup.*      AP + captive web form for credentials
   DianaTools.*      tool declarations + executors
   Base64Stream.h    streaming base64 (audio upload / TTS download without big buffers)
-tools/              package_sd.py, make_boot_wav.py, backup.py (pre-git snapshots; superseded by branches)
-docs/               espidforth-port-assessment.md, code-quality-sweep.md
+tools/              package_sd.py, make_boot_wav.py
 sdcard/             what goes on the card
 partitions/         8 MB table used for USB flashing (the launcher manages its own)
 ```
