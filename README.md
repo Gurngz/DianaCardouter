@@ -158,11 +158,6 @@ Over the same serial link: `/command`s work, plain text talks to her, `forth` â€
 REPL (see "Forth scripting" above). A fresh device with no `diana/config.json` boots into the setup
 portal; its WPA2 password is on the screen.
 
-### Continuous integration
-
-`.github/workflows/build.yml` builds every push to `main` and every pull request with the same
-pinned platform, prints the image size, and uploads `firmware.bin` as an artifact.
-
 ### Layout
 
 ```
