@@ -88,9 +88,9 @@ static void consoleLine(String line) {
             Serial.println("drive: !state !wake !sleep !listen !stoplisten !chirp | !hunt / !hunt stop");
             Serial.println("or type '/command' or plain text to talk to her");
         }
-        else if (c == "state") Serial.printf("[STATE] awake=%d listening=%d capturing=%d uiState=%d heap=%u micRun=%d spkRun=%d\n",
+        else if (c == "state") Serial.printf("[STATE] awake=%d listening=%d capturing=%d uiState=%d heap=%u micRun=%d spkRun=%d level=%d\n",
                                              awake, Audio.isListening(), Audio.capturing(), (int)UI.state(),
-                                             (unsigned)ESP.getFreeHeap(), M5.Mic.isRunning(), M5.Speaker.isRunning());
+                                             (unsigned)ESP.getFreeHeap(), M5.Mic.isRunning(), M5.Speaker.isRunning(), Audio.level());
         else if (c == "regs") es8311Dump();
         else if (c == "rd") { uint8_t r = strtoul(a.c_str(), nullptr, 16); Serial.printf("[RD] %02X=%02X\n", r, M5.In_I2C.readRegister8(0x18, r, 100000)); }
         else if (c == "wr") { int s2 = a.indexOf(' '); uint8_t r = strtoul(a.substring(0, s2).c_str(), nullptr, 16); uint8_t v = strtoul(a.substring(s2 + 1).c_str(), nullptr, 16); M5.In_I2C.writeRegister8(0x18, r, v, 100000); Serial.printf("[WR] %02X<=%02X\n", r, v); }
