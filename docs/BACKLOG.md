@@ -36,32 +36,66 @@ move an item to **Done** with its commit when it lands.
      project with this format today (`DianaXR/diana-ai-axr` and `../Diana`
      have no test plan).
 
-2. **Make Gemini Live a build option** (`-DDIANA_LIVE=0`). Drops the second TLS
+2. **Runtime voice and model selection.** Today: `/voice <name>`, `/model <id>`,
+   `/ttsmodel <id>`, `/think`, and the setup portal (voice dropdown, chat model
+   field) all change settings at runtime and persist. Gaps:
+   - The **Live model** (Diana's main voice path) is the compile-time
+     `LIVE_MODEL`; make it `Config.liveModel` with `/livemodel <id>` and a
+     portal field, falling back to the constant when empty.
+   - **No discovery or validation:** one shared voice table (today it lives only
+     in `DianaSetup.cpp`) feeding `/voices`, the portal and the menu; warn on an
+     unknown voice instead of silently falling back to REST TTS.
+   - **Settings menu:** add Voice (cycle the table, speak a sample) and Model
+     (short preset list plus "custom").
+   - **Forth:** `set` covers them (`s" voice" s" Kore" set`), plus `voice?` /
+     `model?` readers.
+   - Keep the model's `device_settings` tool **unable** to change models:
+     a prompt-injected bad id would take Diana offline.
+
+3. **Make Gemini Live a build option** (`-DDIANA_LIVE=0`). Drops the second TLS
    session (~70–90 KB heap while awake) and `keepAlive` from the loop; the REST
    TTS path becomes the only voice. Measure heap before and after.
 
-3. **Stream the Gemini request body** straight to the socket instead of
+4. **Stream the Gemini request body** straight to the socket instead of
    building ~25 KB of `String`s (system prompt, history, the 4.7 KB
    `DECLARATIONS` copy) during the TLS handshake.
 
-4. **Serial file upload to the SD card.** A console command that takes path,
+5. **Serial file upload to the SD card.** A console command that takes path,
    size and checksum, receives base64 lines, writes the file, and verifies it.
    Lets `boot.fs`, tuning scripts and `Diana.bin` be pushed to the card without
    removing it.
 
-5. **Retire or implement the inert settings** `idle_sleep`, `auto_wake`,
+6. **Retire or implement the inert settings** `idle_sleep`, `auto_wake`,
    `voice_wake` (stored, shown in the menu and tools, do nothing). Decide per
    setting; the skills audit should settle it.
 
-6. **Filtered JSON parsing** of Gemini replies (`DeserializationOption::Filter`)
+7. **Filtered JSON parsing** of Gemini replies (`DeserializationOption::Filter`)
    so thought signatures and grounding metadata never land in RAM.
 
-7. **TLS verification by default.** Embed the Google Trust Services roots, keep
+8. **TLS verification by default.** Embed the Google Trust Services roots, keep
    `/diana/ca.pem` as the override. Needs the device on the bench when it lands:
    a wrong chain takes Diana offline.
 
-8. **Host tests** for the base64 streamer and the chunked HTTP reader in a
+9. **Host tests** for the base64 streamer and the chunked HTTP reader in a
    native PlatformIO environment.
+
+## Hardware add-ons
+
+- **External 2.8" ILI9341 240×320 SPI TFT with XPT2046 touch** (owner has
+  several). Preferred over the Nokia 5110 PCD8544 module, which at 84×48 is
+  smaller than the built-in 240×135 screen.
+  - Bus: share the microSD SPI bus (SCK 40, MOSI 14, MISO 39); needs three
+    extra GPIOs: LCD CS, LCD D/C, touch CS (touch IRQ optional; RST can tie to
+    3V3, backlight to 3V3 or a PWM pin). The Grove port gives two (G1/G2, used
+    as I2C today). **Verify the Cardputer ADV expansion-header pinout** against
+    M5's docs before buying into a wiring plan; without a third pin, drop touch.
+  - RAM: a 240×320×16-bit framebuffer is 150 KB and will not fit beside TLS on
+    this no-PSRAM board. Draw direct or in strips; M5GFX/LovyanGFX drive the
+    ILI9341 natively via a custom panel config.
+  - UI: the HUD canvases are sized for 240×135; a second layout (portrait log,
+    touch buttons for talk/menu) is its own design task.
+  - Power: backlight adds roughly 40–80 mA on battery; the module's regulator
+    accepts 3.3 V logic.
 
 ## Open questions
 
