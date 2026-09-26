@@ -19,11 +19,15 @@ DianaAudio Audio;
 // differ. Tune.codecHold = 0 restores the library behaviour for an A/B by ear.
 static constexpr uint8_t ES8311_ADDR = 0x18;
 
-static bool es8311Write(const uint8_t* seq) {
+// (register, value) pairs. Counted, not zero-terminated: register 0x00 (RESET/CSM) is a real
+// register and the first entry of most sequences, so a 0 terminator stopped every write before it began.
+template <size_t N>
+static bool es8311Write(const uint8_t (&seq)[N]) {
+    static_assert(N % 2 == 0, "ES8311 sequence must be (register, value) pairs");
     bool ok = true;
-    for (; seq[0]; seq += 2) {
+    for (size_t i = 0; i < N; i += 2) {
         bool w = false;
-        for (int r = 0; r < 3 && !w; ++r) w = M5.In_I2C.writeRegister8(ES8311_ADDR, seq[0], seq[1], 100000);
+        for (int r = 0; r < 3 && !w; ++r) w = M5.In_I2C.writeRegister8(ES8311_ADDR, seq[i], seq[i + 1], 100000);
         ok &= w;
     }
     return ok;
@@ -39,14 +43,15 @@ static bool micEnableCb(void*, bool enabled) {
         0x14, 0x10,   // Mic1p-Mic1n, PGA min
         0x17, 0xBF,   // ADC volume 0 dB
         0x1C, 0x6A,   // ADC EQ bypass, DC-offset cancel
-        0 };
+    };
     static const uint8_t offHold[] = {
         0x0E, 0x6A,   // PGA + ADC off; analog stage and CSM stay powered
-        0 };
+    };
     static const uint8_t offFull[] = {
         0x0D, 0xFC, 0x0E, 0x6A, 0x00, 0x00,   // M5Unified default: full power-down
-        0 };
-    return es8311Write(enabled ? on : (Tune.codecHold ? offHold : offFull));
+    };
+    if (enabled) return es8311Write(on);
+    return Tune.codecHold ? es8311Write(offHold) : es8311Write(offFull);
 }
 
 static bool speakerEnableCb(void*, bool enabled) {
@@ -60,12 +65,12 @@ static bool speakerEnableCb(void*, bool enabled) {
         0x12, 0x00,   // DAC power up
         0x13, 0x10,   // HP driver on
         0x37, 0x08,   // bypass DAC EQ
-        0 };
+    };
     static const uint8_t onDefault[] = {
         0x00, 0x80, 0x01, 0xB5, 0x02, 0x18, 0x0D, 0x01,
         0x12, 0x00, 0x13, 0x10, 0x32, 0xBF, 0x37, 0x08,   // M5Unified default order: 0 dB at once
-        0 };
-    return es8311Write(Tune.codecHold ? onMuted : onDefault);
+    };
+    return Tune.codecHold ? es8311Write(onMuted) : es8311Write(onDefault);
 }
 
 // setCallback() is protected in M5Unified (M5Unified::begin wires the board callbacks).
