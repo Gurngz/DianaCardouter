@@ -179,10 +179,22 @@ bool DianaLive::speak(const String& text, const String& voice, const String& sty
     int dstate = 0, dkpos = 0;
     const char* M_TURN = "turnComplete"; int mTurn = 0;
     bool turnDone = false, anyAudio = false, aborted = false;
-    uint8_t pcm[300], chunk[256];
+    // Decode a whole run of base64 per call: the old per-character feed handed the audio path
+    // 3-byte pieces (~16,000 calls/s at real time) and capped arrival at 0.45-0.86x on device
+    // while the same reply reached a Mac at 3-5x (2026-09-25).
+    static uint8_t chunk[1024];
+    static uint8_t pcm[1024 * 3 / 4 + 8];
     size_t pcmBytes = 0;
     int32_t pcmPeak = 0; uint8_t pkPend = 0; bool pkHave = false;
-    uint32_t t0 = millis(), lastTick = millis();
+    uint32_t t0 = millis(), lastTick = millis(), firstPcmMs = 0, lastPcmMs = 0;
+    uint32_t dataFields = 0, b64Chars = 0, frames = 0;
+    auto emit = [&](size_t n) {
+        if (!n) return;
+        for (size_t k = 0; k < n; ++k) { if (!pkHave) { pkPend = pcm[k]; pkHave = true; } else { int16_t sm = (int16_t)(pkPend | (pcm[k] << 8)); int a = sm < 0 ? -sm : sm; if (a > pcmPeak) pcmPeak = a; pkHave = false; } }
+        if (!firstPcmMs) firstPcmMs = millis();
+        lastPcmMs = millis();
+        onPcm(pcm, n); anyAudio = true; pcmBytes += n;
+    };
 
     while (_ws.connected() && !turnDone && !aborted) {
         if (millis() - t0 > 25000) { err = "live: timeout"; break; }
@@ -191,28 +203,34 @@ bool DianaLive::speak(const String& text, const String& voice, const String& sty
         if (_ws.available() == 0) { delay(2); continue; }
         uint8_t op; uint64_t len;
         if (!wsFrameHeader(_ws, op, len, 10000)) break;
+        frames++;
         if (op == 0x8) break;
         if (op == 0x9) { uint8_t j[64]; while (len) { size_t t = len < sizeof(j) ? len : sizeof(j); if (!readN(_ws, j, t, 8000)) { aborted = true; break; } len -= t; } wsSendPong(_ws); continue; }
         while (len > 0 && !aborted) {
             size_t take = len < sizeof(chunk) ? (size_t)len : sizeof(chunk);
             if (!readN(_ws, chunk, take, 10000)) { aborted = true; break; }
             len -= take;
-            for (size_t i = 0; i < take; ++i) {
-                char c = (char)chunk[i];
+            size_t i = 0;
+            while (i < take) {
+                if (dstate == 2) {
+                    // inside a "data" value: decode everything up to the closing quote in one call
+                    size_t j = i;
+                    while (j < take && chunk[j] != '"') ++j;
+                    b64Chars += j - i;
+                    emit(dec.feed((const char*)chunk + i, j - i, pcm));
+                    if (j < take) { emit(dec.finish(pcm)); dstate = 0; ++j; }
+                    i = j;
+                    continue;
+                }
+                char c = (char)chunk[i++];
+                // turnComplete / "data" matchers run only OUTSIDE audio data: base64 can spell
+                // "turnComplete" by chance and would end the reply early.
                 mTurn = (c == M_TURN[mTurn]) ? mTurn + 1 : (c == M_TURN[0] ? 1 : 0);
                 // Only honor turnComplete once audio has actually flowed - this ignores a leftover
                 // turnComplete frame from the previous turn bleeding into this one (the empty-turn bug).
                 if (M_TURN[mTurn] == '\0') { mTurn = 0; if (anyAudio) turnDone = true; }
                 if (dstate == 0) { dkpos = (c == DKEY[dkpos]) ? dkpos + 1 : (c == DKEY[0] ? 1 : 0); if (DKEY[dkpos] == '\0') { dstate = 1; dkpos = 0; } }
-                else if (dstate == 1) { if (c == '"') { dstate = 2; dec = Base64Decoder(); } }
-                else {
-                    size_t n = (c == '"') ? dec.finish(pcm) : dec.feed(&c, 1, pcm);
-                    if (n) {
-                        for (size_t k = 0; k < n; ++k) { if (!pkHave) { pkPend = pcm[k]; pkHave = true; } else { int16_t s = (int16_t)(pkPend | (pcm[k] << 8)); int a = s < 0 ? -s : s; if (a > pcmPeak) pcmPeak = a; pkHave = false; } }
-                        onPcm(pcm, n); anyAudio = true; pcmBytes += n;
-                    }
-                    if (c == '"') dstate = 0;
-                }
+                else if (dstate == 1) { if (c == '"') { dstate = 2; dec = Base64Decoder(); dataFields++; } }
             }
         }
     }
@@ -227,8 +245,10 @@ bool DianaLive::speak(const String& text, const String& voice, const String& sty
             uint8_t jb[128]; while (l) { size_t t = l < sizeof(jb) ? l : sizeof(jb); if (!readN(_ws, jb, t, 200)) break; l -= t; }
         }
     }
-    Serial.printf("[LIVE] reused=%d turnDone=%d pcm=%uB peak=%ld heap=%u\n",
-                  reused, turnDone, (unsigned)pcmBytes, (long)pcmPeak, (unsigned)ESP.getFreeHeap());
+    float arrSec = (lastPcmMs > firstPcmMs) ? (lastPcmMs - firstPcmMs) / 1000.0f : 0;
+    Serial.printf("[LIVE] reused=%d turnDone=%d pcm=%uB peak=%ld heap=%u arrival=%.2fx frames=%u fields=%u b64=%u\n",
+                  reused, turnDone, (unsigned)pcmBytes, (long)pcmPeak, (unsigned)ESP.getFreeHeap(),
+                  arrSec > 0 ? (pcmBytes / 48000.0f) / arrSec : 0.0f, (unsigned)frames, (unsigned)dataFields, (unsigned)b64Chars);
 
     if (aborted) { closeSession(); err = "live: aborted"; return anyAudio; }
     if (!turnDone || !anyAudio) { closeSession(); if (err.isEmpty()) err = "live: no audio"; return anyAudio && turnDone; }

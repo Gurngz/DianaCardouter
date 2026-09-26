@@ -116,6 +116,9 @@ private:
     int      _startDelayMs = 0;
     float    _expectSec = 0;
     float    _startBufSec = 0, _startRate = 0;
+    float    _pauseAt[4] = {0};         // playback position (s) of the first pauses, for the log
+    uint32_t _lastInMs = 0;               // last network bytes (idle input = play the partial tail)
+    bool     _pendingPause = false;       // ran dry; counted as a pause only if more audio follows
     void submitStreamBuf(int idx, size_t samples, std::function<bool()> tick);
     void spoolWrite(const uint8_t* p, size_t n);
     void spoolFlush();

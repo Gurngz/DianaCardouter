@@ -441,6 +441,8 @@ void DianaAudio::streamBegin(float expectedSeconds) {
     _expectSec = expectedSeconds;
     _wLen = _flushed = _inBytes = _readPos = 0;
     _firstInMs = 0;
+    _lastInMs = 0;
+    _pendingPause = false;
     if (Tune.spool) {
         if (!_wBuf) _wBuf = (uint8_t*)malloc(4096);
         File* f = _wBuf ? new File(SD.open(TTS_SPOOL_PATH, "w+")) : nullptr;
@@ -461,6 +463,12 @@ void DianaAudio::spoolFlush() {
 }
 
 void DianaAudio::spoolWrite(const uint8_t* p, size_t n) {
+    _lastInMs = millis();
+    if (_pendingPause) {                   // more audio after running dry: that was a real pause
+        if (_underruns < 4) _pauseAt[_underruns] = _readPos / (TTS_RATE * 2.0f);
+        _underruns++;
+        _pendingPause = false;
+    }
     while (n) {
         size_t k = 4096 - _wLen; if (k > n) k = n;
         memcpy(_wBuf + _wLen, p, k);
@@ -511,8 +519,13 @@ void DianaAudio::spoolPump(bool final) {
         int queued = M5.Speaker.isPlaying(0);
         if (queued >= 2) return;
         if (have < chunkBytes && !final) {
-            if (queued == 0) { _underruns++; _sStarted = false; }   // ran dry: pause once and re-buffer
-            return;
+            // Input idle for 150 ms with a partial chunk left: it is almost certainly the end of
+            // the reply, so play it now instead of leaving a gap before the last syllable.
+            bool inputIdle = have > 0 && millis() - _lastInMs > 150;
+            if (!inputIdle) {
+                if (queued == 0 && !_pendingPause) { _pendingPause = true; _sStarted = false; }   // ran dry: re-buffer
+                return;
+            }
         }
         size_t n = have < chunkBytes ? have : chunkBytes;
         n &= ~(size_t)1;
@@ -598,8 +611,10 @@ void DianaAudio::streamEnd(std::function<bool()> tick) {
             if (tick && !tick()) { aborted = true; break; }
         }
         if (aborted || M5.Speaker.isPlaying(0)) M5.Speaker.stop(0);
-        Serial.printf("[AUDIO] spool %.1fs audio, start after %dms (buffered %.1fs, arrival %.2fx, expected %.1fs), pauses=%d\n",
+        Serial.printf("[AUDIO] spool %.1fs audio, start after %dms (buffered %.1fs, arrival %.2fx, expected %.1fs), pauses=%d at",
                       _inBytes / (TTS_RATE * 2.0f), _startDelayMs, _startBufSec, _startRate, _expectSec, _underruns);
+        for (int i = 0; i < _underruns && i < 4; ++i) Serial.printf(" %.1fs", _pauseAt[i]);
+        Serial.println();
         File* f = (File*)_spoolFile; f->close(); delete f; _spoolFile = nullptr;
         free(_wBuf); _wBuf = nullptr;
         _spool = false;
