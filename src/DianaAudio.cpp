@@ -53,7 +53,7 @@ static bool micEnableCb(void*, bool enabled) {
     if (enabled) {
         on[3] = (Tune.popFix & 1) ? 0xBF : 0xBA;   // pop_fix 1: keep the DAC clocked while listening
         bool ok = es8311Write(on);
-        if (Tune.popFix & 2) M5.In_I2C.writeRegister8(ES8311_ADDR, 0x32, 0x00, 100000);   // DAC muted while listening
+        if ((Tune.popFix & 2) && !(Tune.popFix & 8)) M5.In_I2C.writeRegister8(ES8311_ADDR, 0x32, 0x00, 100000);   // DAC muted while listening (8 overrides: volume never moves)
         return ok;
     }
     return Tune.codecHold ? es8311Write(offHold) : es8311Write(offFull);
@@ -76,6 +76,7 @@ static bool speakerEnableCb(void*, bool enabled) {
         0x12, 0x00, 0x13, 0x10, 0x32, 0xBF, 0x37, 0x08,   // M5Unified default order: 0 dB at once
     };
     onMuted[3]  = (Tune.popFix & 1) ? 0xBF : 0xB5;   // pop_fix 1: ADC clocks stay on too, so nothing toggles
+    onMuted[9]  = (Tune.popFix & 8) ? 0xBF : 0x00;   // pop_fix 8: DAC volume stays at 0 dB, never stepped
     onMuted[13] = (Tune.popFix & 4) ? 0x00 : 0x10;   // pop_fix 4: driver stays off; speakerMode enables it later
     return Tune.codecHold ? es8311Write(onMuted) : es8311Write(onDefault);
 }
@@ -132,7 +133,7 @@ void DianaAudio::speakerMode() {
     // can report isRunning()==true yet produce NO sound - the shared I2S is left in a dead state.
     // A clean end()+begin() reliably restores real output (verified on device: skipping this gave
     // total silence with perfect codec regs; a full re-init played fine). So always hard re-init.
-    if (Tune.popFix & 2) M5.In_I2C.writeRegister8(0x18, 0x32, 0x00, 100000);   // mute BEFORE the clock stops
+    if ((Tune.popFix & 2) && !(Tune.popFix & 8)) M5.In_I2C.writeRegister8(0x18, 0x32, 0x00, 100000);   // mute BEFORE the clock stops
     if (Tune.popFix & 4) M5.In_I2C.writeRegister8(0x18, 0x13, 0x00, 100000);   // driver off across the switch
     if (M5.Mic.isRunning()) M5.Mic.end();
     M5.Speaker.end();
@@ -144,6 +145,7 @@ void DianaAudio::speakerMode() {
         M5.In_I2C.writeRegister8(0x18, 0x13, 0x10, 100000);
         delay(20);
     }
+    if (Tune.popFix & 8) return;                          // volume never moves: nothing to ramp
     // Soft-start: the enable callback leaves the DAC muted (codec_hold) - ramp it up so sound
     // eases in. With codec_hold=0 the library callback snaps to 0 dB first; the re-mute covers that.
     M5.In_I2C.writeRegister8(0x18, 0x32, 0x00, 100000);   // DAC volume -> mute

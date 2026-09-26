@@ -20,6 +20,8 @@ struct DianaTune {
     int popFix             = 0;   // A/B bits for the pop before speech: 1 = keep DAC+ADC clocks on in both modes,
                                   // 2 = mute the DAC before the mic->speaker switch (and while listening),
                                   // 4 = output driver off across the switch, on once clocks are stable
+                                  // 8 = never move the DAC volume (no mute, no ramp): with any DC offset each
+                                  //     volume step is itself a click
     int codecHold          = 1;   // 1 = keep the ES8311 analog stage powered between mic and speaker (no pop); 0 = M5Unified default
 };
 
