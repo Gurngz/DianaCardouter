@@ -35,33 +35,84 @@ static void print(const String& s) { for (size_t i = 0; i < s.length(); ++i) io_
 static void println(const String& s) { print(s); io_put('\n'); }
 
 // ── tunables: one table for config fields and DianaTune ──────────────────────
-struct TuneEntry { const char* name; int* ptr; int lo, hi; void (*apply)(int); const char* help; };
+// cfg = the value lives in DianaConfig (saved with the config); otherwise it is a runtime tunable saved to tune.fs
+struct TuneEntry { const char* name; int* ptr; int lo, hi; void (*apply)(int); const char* help; bool cfg; };
 static void applyVolume(int v)     { Audio.setVolume(v); }
 static void applyBrightness(int v) { M5.Display.setBrightness(v); }
 static const TuneEntry TUNES[] = {
-    { "vad",           &Config.vadThreshold,    100, 4000, nullptr,          "RMS level that counts as speech" },
-    { "silence_ms",    &Config.silenceMs,       200, 5000, nullptr,          "silence after speech that ends a recording" },
-    { "mic_gain",      &Config.micGain,           8,  128, nullptr,          "ES8311 mic gain (reboot to apply)" },
-    { "volume",        &Config.volume,            0,  255, applyVolume,      "speaker volume" },
-    { "brightness",    &Config.brightness,        8,  255, applyBrightness,  "screen backlight" },
-    { "idle_sleep",    &Config.idleSleepSec,      0, 3600, nullptr,          "(stored; auto-sleep not implemented)" },
-    { "stream_chunk",  &Tune.streamChunkSamples, 480, 8000, nullptr,         "TTS buffer samples @24k (next reply)" },
-    { "stream_prebuf", &Tune.streamPrebuffer,     1,    3, nullptr,          "buffers held before playback starts" },
-    { "reply_tokens",  &Tune.replyMaxTokens,     32, 2048, nullptr,          "Gemini maxOutputTokens" },
-    { "rec_max_sec",   &Tune.recMaxSeconds,       2,   60, nullptr,          "longest recording / utterance" },
-    { "history_turns", &Tune.historyMaxTurns,     1,   32, nullptr,          "exchanges kept in context" },
-    { "history_chars", &Tune.historyMaxChars,   500, 12000, nullptr,         "context size cap" },
-    { "spool",         &Tune.spool,               0,    1, nullptr,          "1 = SD jitter buffer for voice replies" },
-    { "jitter_ms",     &Tune.jitterMarginMs,      0, 3000, nullptr,          "extra head start before a reply plays" },
-    { "jitter_max_ms", &Tune.jitterMaxMs,         0, 15000, nullptr,         "longest wait before the first word (0 = no cap)" },
-    { "speech_cps",    &Tune.speechCps,           5,   30, nullptr,          "chars/sec used to estimate reply length" },
-    { "codec_hold",    &Tune.codecHold,           0,    1, nullptr,          "1 = no codec power-down between mic and speaker (anti-pop)" },
+    { "vad",           &Config.vadThreshold,    100, 4000, nullptr,          "RMS level that counts as speech", true },
+    { "silence_ms",    &Config.silenceMs,       200, 5000, nullptr,          "silence after speech that ends a recording", true },
+    { "mic_gain",      &Config.micGain,           8,  128, nullptr,          "ES8311 mic gain (reboot to apply)", true },
+    { "volume",        &Config.volume,            0,  255, applyVolume,      "speaker volume", true },
+    { "brightness",    &Config.brightness,        8,  255, applyBrightness,  "screen backlight", true },
+    { "idle_sleep",    &Config.idleSleepSec,      0, 3600, nullptr,          "(stored; auto-sleep not implemented)", true },
+    { "stream_chunk",  &Tune.streamChunkSamples, 480, 8000, nullptr,         "TTS buffer samples @24k (next reply)", false },
+    { "stream_prebuf", &Tune.streamPrebuffer,     1,    3, nullptr,          "buffers held before playback starts", false },
+    { "reply_tokens",  &Tune.replyMaxTokens,     32, 2048, nullptr,          "Gemini maxOutputTokens", false },
+    { "rec_max_sec",   &Tune.recMaxSeconds,       2,   60, nullptr,          "longest recording / utterance", false },
+    { "history_turns", &Tune.historyMaxTurns,     1,   32, nullptr,          "exchanges kept in context", false },
+    { "history_chars", &Tune.historyMaxChars,   500, 12000, nullptr,         "context size cap", false },
+    { "spool",         &Tune.spool,               0,    1, nullptr,          "1 = SD jitter buffer for voice replies", false },
+    { "jitter_ms",     &Tune.jitterMarginMs,      0, 3000, nullptr,          "extra head start before a reply plays", false },
+    { "jitter_max_ms", &Tune.jitterMaxMs,         0, 15000, nullptr,         "longest wait before the first word (0 = no cap)", false },
+    { "speech_cps",    &Tune.speechCps,           5,   30, nullptr,          "chars/sec used to estimate reply length", false },
+    { "codec_hold",    &Tune.codecHold,           0,    1, nullptr,          "1 = no codec power-down between mic and speaker (anti-pop)", false },
 };
-static const TuneEntry* findTune(const String& name) {
+static const TuneEntry* lookupTune(const String& name) {
     for (auto& t : TUNES) if (name.equalsIgnoreCase(t.name)) return &t;
-    println("? no tunable '" + name + "' (type tunes)");
     return nullptr;
 }
+static const TuneEntry* findTune(const String& name) {
+    const TuneEntry* t = lookupTune(name);
+    if (!t) println("? no tunable '" + name + "' (type tunes)");
+    return t;
+}
+static int applyTune(const TuneEntry* t, int v) {
+    if (v < t->lo) v = t->lo;
+    if (v > t->hi) v = t->hi;
+    *t->ptr = v;
+    if (t->apply) t->apply(v);
+    return v;
+}
+
+// ── Tunables: the same table for the serial console (!tune) and tools/tune.py ─
+namespace Tunables {
+void list(Print& out) {
+    for (auto& t : TUNES)
+        out.printf("[TUNE] %s=%d %d..%d %s | %s\n", t.name, *t.ptr, t.lo, t.hi, t.cfg ? "config" : "tune.fs", t.help);
+}
+bool set(const String& name, int value, String& msg) {
+    const TuneEntry* t = lookupTune(name);
+    if (!t) { msg = "ERR unknown tunable '" + name + "'"; return false; }
+    int v = applyTune(t, value);
+    msg = String(t->name) + "=" + v + (v != value ? " (clamped)" : "");
+    return true;
+}
+bool get(const String& name, int& value) {
+    const TuneEntry* t = lookupTune(name);
+    if (!t) return false;
+    value = *t->ptr;
+    return true;
+}
+// Runtime tunables -> /diana/tune.fs (loaded at boot); config-backed ones -> Config.save().
+bool save(String& msg) {
+    bool cfgOk = Config.save(sdOk);
+    if (!sdOk) { msg = String("config ") + (cfgOk ? "saved" : "FAILED") + "; no SD card, tune.fs not written"; return false; }
+    File f = SD.open(path(), FILE_WRITE);
+    if (!f) { msg = "ERR cannot write " + String(path()); return false; }
+    f.println("\\ DIANA runtime tunables - written by !tune save / tools/tune.py --save");
+    f.println("\\ Loaded at boot before boot.fs. Edit freely: one  s\" name\" value tune!  per line.");
+    int n = 0;
+    for (auto& t : TUNES) {
+        if (t.cfg) continue;
+        f.printf("s\" %s\" %d tune!\n", t.name, *t.ptr);
+        n++;
+    }
+    f.close();
+    msg = String("saved ") + n + " tunables to " + path() + ", config " + (cfgOk ? "saved" : "FAILED");
+    return cfgOk;
+}
+}  // namespace Tunables
 
 // ── Diana words ───────────────────────────────────────────────────────────────
 // Anything that plays audio must release the hands-free mic first (shared I2S, same as a real turn).
@@ -74,12 +125,11 @@ static void w_tuneGet(){ const TuneEntry* t = findTune(popStr()); forth_push(t ?
 static void w_tuneSet(){                                                                                 // ( name n -- )
     int v = (int)forth_pop(); String n = popStr();
     const TuneEntry* t = findTune(n); if (!t) return;
-    if (v < t->lo) v = t->lo; if (v > t->hi) v = t->hi;
-    *t->ptr = v; if (t->apply) t->apply(v);
+    v = applyTune(t, v);
     println(String(t->name) + " = " + v);
 }
 static void w_tunes()  { for (auto& t : TUNES) println(String(t.name) + " = " + *t.ptr + "  (" + t.lo + ".." + t.hi + ") " + t.help); }
-static void w_cfgSave(){ println(Config.save(sdOk) ? "config saved" : "config save failed"); }
+static void w_cfgSave(){ String m; Tunables::save(m); println(m); }
 static void w_timer()  { String l = popStr(); int s = (int)forth_pop(); println(addTimer(s, l)); }      // ( secs label -- )
 static void w_ir()     { String p = popStr(); uint32_t c = (uint32_t)forth_pop(); uint32_t a = (uint32_t)forth_pop(); println(dianaIrSend(p, a, c)); }  // ( addr cmd proto -- )
 static void w_irRun()  { println(dianaIrRunNamed(popStr())); }                                        // ( name -- )

@@ -24,3 +24,13 @@ private:
 };
 
 extern DianaForth Forth;
+
+// The tunables table, shared by Forth (tune@ tune! tunes cfg-save), the serial console (!tune)
+// and tools/tune.py. Config-backed entries persist in config.json/NVS; the rest in tune.fs.
+namespace Tunables {
+    inline const char* path() { return "/diana/tune.fs"; }
+    void list(Print& out);                                  // one "[TUNE] name=value lo..hi where | help" line each
+    bool set(const String& name, int value, String& msg);   // clamps to range; msg = "name=value" or "ERR ..."
+    bool get(const String& name, int& value);
+    bool save(String& msg);                                 // tune.fs + config
+}

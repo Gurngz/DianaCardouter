@@ -67,6 +67,35 @@ static void consoleLine(String line) {
         Serial.printf("[CONSOLE] > %s\n", line.c_str());
     }
     if (line.startsWith("/")) { handleCommand(line); return; }
+    // !tune                     list every tunable (machine-readable [TUNE] lines)
+    // !tune name value [...]    set one or more; each answers [TUNE] name=value or [TUNE] ERR ...
+    // !tune save                persist (tune.fs + config)
+    // !say <text>               speak text (for listening tests); the [TTS]/[AUDIO] log lines report it
+    if (line == "!tune" || line.startsWith("!tune ")) {
+        String rest = line.substring(5); rest.trim();
+        if (rest.isEmpty()) { Tunables::list(Serial); Serial.println("[TUNE] END"); return; }
+        if (rest == "save") { String m; bool ok = Tunables::save(m); Serial.printf("[TUNE] %s%s\n", ok ? "" : "ERR ", m.c_str()); return; }
+        while (rest.length()) {
+            int sp = rest.indexOf(' ');
+            String name = sp < 0 ? rest : rest.substring(0, sp);
+            rest = sp < 0 ? String("") : rest.substring(sp + 1); rest.trim();
+            int eq = name.indexOf('=');                       // accept name=value or name value
+            String val;
+            if (eq > 0) { val = name.substring(eq + 1); name = name.substring(0, eq); }
+            else { sp = rest.indexOf(' '); val = sp < 0 ? rest : rest.substring(0, sp); rest = sp < 0 ? String("") : rest.substring(sp + 1); rest.trim(); }
+            if (val.isEmpty() || !(isDigit(val[0]) || val[0] == '-')) { Serial.printf("[TUNE] ERR %s needs a number\n", name.c_str()); continue; }
+            String m; Tunables::set(name, val.toInt(), m);
+            Serial.printf("[TUNE] %s\n", m.c_str());
+        }
+        return;
+    }
+    if (line.startsWith("!say ")) {
+        String text = line.substring(5); text.trim();
+        if (Audio.isListening()) { Audio.stopListening(); UI.setListening(false, 0); }
+        speakText(text);
+        Serial.println("[SAY] done");
+        return;
+    }
     // Forth REPL: `forth` enters, `bye` leaves; everything between is evaluated verbatim.
     static bool forthRepl = false;
     if (forthRepl) {

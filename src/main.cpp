@@ -691,8 +691,9 @@ void setup() {
 
     // Forth: tunables and scripts from the SD card, no reflash needed (/diana/boot.fs runs now)
     if (Forth.begin()) {
+        int nt = (sdOk && SD.exists(Tunables::path())) ? Forth.runFile(Tunables::path(), false) : 0;   // saved tunables
         int n = (sdOk && SD.exists(Forth.bootScript())) ? Forth.runFile(Forth.bootScript(), false) : 0;
-        bootLog(n ? "Forth: boot.fs (" + String(n) + " lines)" : "Forth: ready");
+        bootLog("Forth: " + (nt ? String("tune.fs ") + nt + " " : String("")) + (n ? "boot.fs " + String(n) : String("ready")));
     } else bootLog("Forth: init failed", false);
 
     hooks.webSearch = [](const String& q) {

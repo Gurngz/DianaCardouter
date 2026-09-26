@@ -89,12 +89,14 @@ named tunable, and behaviour can be scripted from the SD card:
 | `/fs <name>` | run `/diana/<name>.fs` from the card (`/fs boot` re-runs the boot script) |
 | `diana/boot.fs` | runs at every boot after config and audio are up (sample in `sdcard/diana/`) |
 | serial: `forth` … `bye` | REPL over USB at 115200 baud |
+| **`tools/tune.py`** | **tune from the Mac over USB — the easy way** (see below) |
 
 Vocabulary (`/forth diana-words`): `say` `ask` `log` `( addr u -- )`, `set ( name val -- )` for any
 device setting, `tune@` / `tune!` / `tunes` / `cfg-save`, `timer ( secs label -- )`, `ir ( addr cmd proto -- )`,
 `ir-run`, `tone ( hz ms -- )`, `beep`, `mute`, `sleep`, `wake`, `status`, `heap`, `ms`, `wait`, `wifi?` `sd?` `awake?`,
 `include ( name -- )`. Tunables: `vad` `silence_ms` `mic_gain` `volume` `brightness` `stream_chunk` `stream_prebuf`
-`reply_tokens` `rec_max_sec` `history_turns` `history_chars`. Strings are `s" text"`; lines are limited to
+`reply_tokens` `rec_max_sec` `history_turns` `history_chars` `spool` `jitter_ms` `jitter_max_ms`
+`speech_cps` `codec_hold`. Strings are `s" text"`; lines are limited to
 250 characters; `\` starts a comment. The engine is ESPIDFORTH's core word set (`words` lists it).
 
 ## Build it yourself
@@ -147,6 +149,27 @@ still produced.
 The `0x170000` offset is where M5Launcher keeps the installed app (`ota_0` in its partition table);
 check it on your unit before trusting it: `esptool.py --port ... read_flash 0x8000 0xc00 pt.bin`.
 Find the port with `pio device list` (the Cardputer ADV shows as "USB JTAG/serial debug unit").
+
+### Tune from a script
+
+`tools/tune.py` sets any tunable over the USB serial port, so nothing has to be typed on the
+Cardputer. It finds the port itself and does not reset the device. Run it with PlatformIO's
+Python, which already has pyserial:
+
+```bash
+PY=~/.platformio/penv/bin/python
+$PY tools/tune.py                                   # list every tunable, its range, where it is saved
+$PY tools/tune.py jitter_max_ms=6000 jitter_ms=1000 # set now (lasts until reboot)
+$PY tools/tune.py jitter_max_ms=6000 --save         # set and keep across reboots
+$PY tools/tune.py --preset slow-network --save      # presets: default, slow-network, fast-start, direct
+$PY tools/tune.py --get jitter_ms
+$PY tools/tune.py --say "The quick brown fox." --repeat 3   # listening test: delay and pauses per run
+```
+
+Under the hood it sends console commands you can also type in `pio device monitor`:
+`!tune` (list), `!tune name=value ...` (set), `!tune save` (persist), `!say <text>` (speak).
+`--save` writes runtime tunables to `/diana/tune.fs` on the SD card, loaded at boot before
+`boot.fs`; config-backed ones (vad, silence_ms, mic_gain, volume, brightness) go to the config.
 
 ### Watch it run
 
