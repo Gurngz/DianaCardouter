@@ -51,6 +51,10 @@ static const TuneEntry TUNES[] = {
     { "rec_max_sec",   &Tune.recMaxSeconds,       2,   60, nullptr,          "longest recording / utterance" },
     { "history_turns", &Tune.historyMaxTurns,     1,   32, nullptr,          "exchanges kept in context" },
     { "history_chars", &Tune.historyMaxChars,   500, 12000, nullptr,         "context size cap" },
+    { "spool",         &Tune.spool,               0,    1, nullptr,          "1 = SD jitter buffer for voice replies" },
+    { "jitter_ms",     &Tune.jitterMarginMs,      0, 3000, nullptr,          "extra head start before a reply plays" },
+    { "jitter_max_ms", &Tune.jitterMaxMs,         0, 15000, nullptr,         "longest wait before the first word (0 = no cap)" },
+    { "speech_cps",    &Tune.speechCps,           5,   30, nullptr,          "chars/sec used to estimate reply length" },
     { "codec_hold",    &Tune.codecHold,           0,    1, nullptr,          "1 = no codec power-down between mic and speaker (anti-pop)" },
 };
 static const TuneEntry* findTune(const String& name) {

@@ -413,7 +413,8 @@ bool DianaAudio::streamPcm(void* filePtr, uint32_t rate, bool stereo, size_t byt
 // The M5 speaker holds only 2 queued slots per channel, so smoothness comes from
 // large buffers: STREAM_CHUNK_SAMPLES each, with a short prebuffer before playback
 // starts so brief network stalls don't underrun the DAC.
-void DianaAudio::streamBegin() {
+void DianaAudio::streamBegin(float expectedSeconds) {
+    if (_spoolFile) { File* f = (File*)_spoolFile; f->close(); delete f; _spoolFile = nullptr; }   // retry of a failed attempt
     speakerMode();
     _sChunk = Tune.streamChunkSamples;       // snapshot: the whole stream uses one size
     for (int i = 0; i < 3; ++i) {
@@ -430,7 +431,105 @@ void DianaAudio::streamBegin() {
     _sFilled = 0;
     _sStarted = false;
     _underruns = 0;
+    _startDelayMs = 0;
     _streaming = true;
+
+    // SD jitter buffer. The network can deliver slower than real time (measured 2026-09-25:
+    // 0.62-0.86x on Live native audio), and three RAM buffers hold at most ~1 s, so a slow
+    // stream clicked every buffer. Spooling to the card lets playback wait until it can finish.
+    _spool = false;
+    _expectSec = expectedSeconds;
+    _wLen = _flushed = _inBytes = _readPos = 0;
+    _firstInMs = 0;
+    if (Tune.spool) {
+        if (!_wBuf) _wBuf = (uint8_t*)malloc(4096);
+        File* f = _wBuf ? new File(SD.open(TTS_SPOOL_PATH, "w+")) : nullptr;
+        if (f && *f) { _spoolFile = f; _spool = true; }
+        else { if (f) delete f; free(_wBuf); _wBuf = nullptr;
+               Serial.println("[AUDIO] spool unavailable - direct streaming"); }
+    }
+}
+
+// ───────────────────────── SD spool (jitter buffer) ─────────────────────
+void DianaAudio::spoolFlush() {
+    if (!_wLen || !_spoolFile) return;
+    File* f = (File*)_spoolFile;
+    f->seek(_flushed);
+    size_t w = f->write(_wBuf, _wLen);
+    _flushed += w;
+    _wLen = 0;
+}
+
+void DianaAudio::spoolWrite(const uint8_t* p, size_t n) {
+    while (n) {
+        size_t k = 4096 - _wLen; if (k > n) k = n;
+        memcpy(_wBuf + _wLen, p, k);
+        _wLen += k; p += k; n -= k; _inBytes += k;
+        if (_wLen == 4096) spoolFlush();
+    }
+}
+
+// Start (or resume) once the buffered audio can carry playback to the end of the reply.
+// With arrival rate r (seconds of audio per second) and R seconds still to arrive, playback
+// never overtakes arrival when buffered >= R * (1/r - 1). A fast link (r >= 1) needs only the margin.
+bool DianaAudio::spoolReady(size_t have) {
+    const float bps = TTS_RATE * 2.0f;
+    float bufSec = have / bps;
+    float minSec = (float)Tune.streamPrebuffer * _sChunk / TTS_RATE;
+    if (bufSec < minSec) return false;
+    float el = (millis() - _firstInMs) / 1000.0f;
+    if (el < 0.4f) return false;                         // too early to know the rate
+    float inSec = _inBytes / bps;
+    float rate = inSec / el * 0.9f;                      // arrival slows mid-reply more often than it speeds up
+    // The length estimate is from the text; if more audio than that has already arrived,
+    // assume the reply runs on rather than treating it as nearly finished.
+    if (inSec > _expectSec * 0.9f) _expectSec = inSec * 1.3f;
+    float remain = _expectSec - inSec; if (remain < 0) remain = 0;
+    float need = Tune.jitterMarginMs / 1000.0f;
+    if (rate < 1.0f && rate > 0.05f) need += remain * (1.0f / rate - 1.0f);
+    if (_underruns > 0 && need < 1.0f) need = 1.0f;     // after a pause, resume with a real cushion
+    // Never make her silent for longer than jitter_max_ms before the FIRST word: on a very
+    // slow link a long reply would otherwise wait 10+ s. Past the cap, start and accept a pause.
+    bool capped = !_startDelayMs && Tune.jitterMaxMs > 0 && el * 1000.0f >= Tune.jitterMaxMs;
+    if (bufSec < need && !capped) return false;
+    if (!_startDelayMs) { _startBufSec = bufSec; _startRate = rate / 0.9f; }   // log the FIRST start
+    return true;
+}
+
+// Non-blocking: top the speaker queue up from the file. `final` = no more bytes are coming.
+void DianaAudio::spoolPump(bool final) {
+    if (!_spool || !_sBuf[0]) return;
+    File* f = (File*)_spoolFile;
+    const size_t chunkBytes = (size_t)_sChunk * sizeof(int16_t);
+    for (;;) {
+        size_t have = _inBytes - _readPos;
+        if (!_sStarted) {
+            if (!(final ? have > 0 : spoolReady(have))) return;
+            _sStarted = true;
+            if (!_startDelayMs) _startDelayMs = (int)(millis() - _firstInMs);
+        }
+        int queued = M5.Speaker.isPlaying(0);
+        if (queued >= 2) return;
+        if (have < chunkBytes && !final) {
+            if (queued == 0) { _underruns++; _sStarted = false; }   // ran dry: pause once and re-buffer
+            return;
+        }
+        size_t n = have < chunkBytes ? have : chunkBytes;
+        n &= ~(size_t)1;
+        if (!n) return;
+        if (_readPos + n > _flushed) spoolFlush();
+        f->seek(_readPos);
+        size_t got = f->read((uint8_t*)_sBuf[_sIdx], n);
+        if (got < 2) return;
+        got &= ~(size_t)1;
+        M5.Speaker.playRaw(_sBuf[_sIdx], got / 2, TTS_RATE, false, 1, 0, false);
+        _sIdx = (_sIdx + 1) % 3;
+        _readPos += got;
+    }
+}
+
+void DianaAudio::streamPoll() {
+    if (_streaming && _spool) spoolPump(false);
 }
 
 void DianaAudio::submitStreamBuf(int idx, size_t samples, std::function<bool()> tick) {
@@ -444,6 +543,12 @@ void DianaAudio::submitStreamBuf(int idx, size_t samples, std::function<bool()> 
 
 bool DianaAudio::streamFeed(const uint8_t* pcm, size_t len, std::function<bool()> tick) {
     if (!_streaming || !_sBuf[0] || !_sBuf[1] || !_sBuf[2]) return false;
+    if (_spool) {
+        if (!_firstInMs) _firstInMs = millis();
+        spoolWrite(pcm, len);
+        spoolPump(false);
+        return true;
+    }
     const size_t chunkBytes = (size_t)_sChunk * sizeof(int16_t);
     while (len > 0) {
         int16_t* buf = _sBuf[_sIdx];
@@ -480,6 +585,29 @@ bool DianaAudio::streamFeed(const uint8_t* pcm, size_t len, std::function<bool()
 
 void DianaAudio::streamEnd(std::function<bool()> tick) {
     if (!_streaming) { return; }
+    if (_spool) {
+        // Everything has arrived: play the rest of the file, then close it.
+        spoolFlush();
+        size_t left = _inBytes - _readPos;
+        uint32_t limit = (uint32_t)(left / (TTS_RATE * 2.0f) * 1000) + 5000;
+        uint32_t t0 = millis();
+        bool aborted = false;
+        while ((_readPos < _inBytes || M5.Speaker.isPlaying(0)) && millis() - t0 < limit) {
+            spoolPump(true);
+            delay(5);
+            if (tick && !tick()) { aborted = true; break; }
+        }
+        if (aborted || M5.Speaker.isPlaying(0)) M5.Speaker.stop(0);
+        Serial.printf("[AUDIO] spool %.1fs audio, start after %dms (buffered %.1fs, arrival %.2fx, expected %.1fs), pauses=%d\n",
+                      _inBytes / (TTS_RATE * 2.0f), _startDelayMs, _startBufSec, _startRate, _expectSec, _underruns);
+        File* f = (File*)_spoolFile; f->close(); delete f; _spoolFile = nullptr;
+        free(_wBuf); _wBuf = nullptr;
+        _spool = false;
+        delay(20);
+        for (int i = 0; i < 3; ++i) { free(_sBuf[i]); _sBuf[i] = nullptr; }
+        _streaming = false;
+        return;
+    }
     // flush any buffers still held from prebuffer, plus the partial tail
     if (!_sStarted) {
         for (int k = 0; k < _sFilled; ++k) {

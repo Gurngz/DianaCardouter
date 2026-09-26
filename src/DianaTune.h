@@ -12,6 +12,10 @@ struct DianaTune {
     int recMaxSeconds      = REC_MAX_SECONDS;        // hard cap on one recording / utterance
     int historyMaxTurns    = HISTORY_MAX_TURNS;      // exchanges kept in context
     int historyMaxChars    = HISTORY_MAX_CHARS;
+    int spool              = 1;   // 1 = buffer streamed voice on the SD card and start when it can finish unbroken; 0 = direct
+    int jitterMarginMs     = 500; // extra head start on top of the computed need
+    int jitterMaxMs        = 4000; // longest wait before the first word, even if a pause may follow (0 = no cap)
+    int speechCps          = 15;  // spoken characters per second, for estimating reply length (measured 14.5-17 on Live)
     int codecHold          = 1;   // 1 = keep the ES8311 analog stage powered between mic and speaker (no pop); 0 = M5Unified default
 };
 

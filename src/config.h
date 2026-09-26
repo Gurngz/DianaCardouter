@@ -24,6 +24,7 @@
 #define IR_CODES_PATH   "/diana/ir_codes.json"
 #define BOOT_WAV_PATH   "/diana/boot.wav"
 #define REC_PATH        "/diana/.rec.pcm"
+#define TTS_SPOOL_PATH  "/diana/.tts.pcm"   // SD jitter buffer for streamed voice replies
 
 // ── Audio ──────────────────────────────────────────────────────────────────
 #define REC_RATE            16000      // mic sample rate sent to Gemini (audio/L16;rate=16000)

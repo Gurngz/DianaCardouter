@@ -37,10 +37,13 @@ public:
     void bootTest();
 
     // ── streaming playback: feed PCM as it arrives from the network ───────
-    void streamBegin();
+    // expectedSeconds: rough length of the reply, used to decide how much to buffer before playing.
+    void streamBegin(float expectedSeconds = 0);
     bool streamFeed(const uint8_t* pcm, size_t len, std::function<bool()> tick = nullptr);  // false = aborted
+    void streamPoll();               // call often while a stream is open (the playback tick does): keeps the speaker fed
     void streamEnd(std::function<bool()> tick = nullptr);
-    int  lastUnderruns() const { return _underruns; }   // times the queue drained mid-speech (glitch metric)
+    int  lastUnderruns() const { return _underruns; }   // direct: queue drains; spool: re-buffer pauses
+    int  lastStartDelayMs() const { return _startDelayMs; }  // first byte -> playback start
 
     // ── playback (blocking; `tick` is called between chunks and may return false to abort) ──
     bool playPcmFile(const char* path, uint32_t rate, std::function<bool()> tick = nullptr);
@@ -101,7 +104,23 @@ private:
     bool     _sStarted = false;       // playback has begun (prebuffer satisfied)
     bool     _streaming = false;
     int      _underruns = 0;
+    // SD spool (jitter buffer): network bytes append to TTS_SPOOL_PATH, playback reads behind them.
+    bool     _spool = false;
+    void*    _spoolFile = nullptr;    // File*
+    uint8_t* _wBuf = nullptr;         // RAM accumulator so the SD sees 4 KB writes, not 300-byte ones
+    size_t   _wLen = 0;
+    size_t   _flushed = 0;            // bytes written to the file
+    size_t   _inBytes = 0;            // bytes received (flushed + in _wBuf)
+    size_t   _readPos = 0;            // bytes handed to the speaker
+    uint32_t _firstInMs = 0;
+    int      _startDelayMs = 0;
+    float    _expectSec = 0;
+    float    _startBufSec = 0, _startRate = 0;
     void submitStreamBuf(int idx, size_t samples, std::function<bool()> tick);
+    void spoolWrite(const uint8_t* p, size_t n);
+    void spoolFlush();
+    bool spoolReady(size_t have);
+    void spoolPump(bool final);
     bool allocPlayBufs();
     void freePlayBufs();
     bool allocRecBufs();

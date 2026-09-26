@@ -27,6 +27,7 @@
 #include "DianaIR.h"
 #include "DianaMusic.h"
 #include "DianaForth.h"
+#include "DianaTune.h"
 
 // The TLS handshake, base64 streaming buffers and JSON parsing all run on the
 // loop task; the default 8 KB stack is too tight for that chain.
@@ -210,6 +211,7 @@ static String buildSystemPrompt() {
 
 // key poll used while playing audio so ESC/TAB can interrupt
 static bool playbackTick() {
+    Audio.streamPoll();           // keep the speaker fed from the SD spool even while the network is quiet
     M5Cardputer.update();
     UI.tick();
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
@@ -221,6 +223,19 @@ static bool playbackTick() {
 }
 
 // ── speaking ─────────────────────────────────────────────────────────────────
+// Rough spoken length of a reply, for the jitter buffer. ASCII at Tune.speechCps chars/s;
+// multi-byte glyphs (kana, kanji, accented) carry more sound each, so count them at half that.
+static float estimateSpeechSeconds(const String& s) {
+    int ascii = 0, wide = 0;
+    for (size_t i = 0; i < s.length(); ++i) {
+        uint8_t c = (uint8_t)s[i];
+        if (c < 0x80) ascii++;
+        else if ((c & 0xC0) != 0x80) wide++;       // count each UTF-8 lead byte once
+    }
+    float cps = Tune.speechCps > 0 ? (float)Tune.speechCps : 13.0f;
+    return ascii / cps + wide / (cps / 2.0f);
+}
+
 static bool canSpeak() {
     return Config.voiceEnabled && !muted && sdOk && Net.isConnected();
 }
@@ -298,6 +313,7 @@ static void speak(const String& text, const String& style = "", const String& la
     UI.setState(DianaState::SPEAKING);
     UI.tick();
     uint32_t t0 = millis();
+    float expectSec = estimateSpeechSeconds(spoken);
     static uint32_t firstAudioMs = 0;
     firstAudioMs = 0;
     // (streamBegin is called inside each attempt below, so no redundant speaker re-init here)
@@ -321,7 +337,7 @@ static void speak(const String& text, const String& style = "", const String& la
         int keys = Config.apiKeyCount() < 1 ? 1 : Config.apiKeyCount();
         for (int ki = 0; ki < keys && !ok; ++ki) {
             String e;
-            Audio.streamBegin();
+            Audio.streamBegin(expectSec);
             if (GeminiLive.speak(spoken, Config.ttsVoiceOrDefault(), liveStyle, langCode, Config.apiKey.c_str(), feed, playbackTick, e)) {
                 ok = true; Serial.printf("[VOICE] Live native-audio OK (voice=%s)\n", Config.ttsVoiceOrDefault()); break;
             }
@@ -348,7 +364,7 @@ static void speak(const String& text, const String& style = "", const String& la
             int keys = Config.apiKeyCount() < 1 ? 1 : Config.apiKeyCount();
             for (int ki = 0; ki < keys && !ok; ++ki) {
                 String e;
-                Audio.streamBegin();
+                Audio.streamBegin(expectSec);
                 if (Gemini.ttsStream(spoken, model, useStyle, feed, playbackTick, e)) { ok = true; break; }
                 if (Gemini.lastTtsStatus == 429) { quota = true; err = e; Config.rotateApiKey(); continue; }
                 err = e; quota = false; break;      // non-quota error: stop trying
@@ -357,9 +373,10 @@ static void speak(const String& text, const String& style = "", const String& la
         }
     }
     Audio.streamEnd(playbackTick);
-    Serial.printf("[TTS] stream ok=%d first-audio=%lums total=%lums underruns=%d\n", ok,
-                  (unsigned long)(firstAudioMs ? firstAudioMs - t0 : 0), (unsigned long)(millis() - t0),
-                  Audio.lastUnderruns());
+    Serial.printf("[TTS] stream ok=%d first-audio=%lums heard=%lums total=%lums underruns=%d\n", ok,
+                  (unsigned long)(firstAudioMs ? firstAudioMs - t0 : 0),
+                  (unsigned long)(firstAudioMs ? firstAudioMs - t0 + Audio.lastStartDelayMs() : 0),
+                  (unsigned long)(millis() - t0), Audio.lastUnderruns());
     if (savedVol >= 0) Audio.setVolume(savedVol);    // restore volume after a midnight whisper
     if (!ok) UI.log(quota ? "voice: daily voice quota reached (text still works; enable billing for unlimited)"
                           : "voice: " + err, 'w');
