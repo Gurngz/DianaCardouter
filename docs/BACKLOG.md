@@ -184,9 +184,18 @@ move an item to **Done** with its commit when it lands.
 
 ## Open questions
 
-- **Pop before TTS:** fix in `7f80734` (`codec_hold`), awaiting a listening
-  verdict. If a click remains, the next suspect is the I2S clock restart on
+- **Pop before TTS:** the `codec_hold` sequence only took effect after the
+  writer fix in `d2415bc` (the first version wrote nothing). Owner reported
+  playback "very good" on 2026-09-26 after the jitter buffer; confirm the pop
+  specifically. If a click remains, the next suspect is the I2S clock restart on
   every mic/speaker switch.
+- **Voice arrival below real time on the device** (0.45-0.86x) while the Mac
+  gets the same Live reply at 3.2-4.9x (2026-09-25). Leading suspect: the Live
+  client base64-decodes one character at a time and hands 3-byte pieces to the
+  audio path (~16,000 calls/s). Test: a build that discards the audio and
+  reports arrival rate; fix: decode per frame. Also seen: two replies waited
+  14-15 s before the first word (cause not logged; possibly a Live session
+  reopen after idle).
 
 ## Housekeeping
 
@@ -196,6 +205,13 @@ move an item to **Done** with its commit when it lands.
   `~/pop11-tools/`; it works on any ESP32 PlatformIO map.
 
 ## Done
+
+- Dead mic after the pop fix: ES8311 writer stopped at register 0x00 — `d2415bc`
+- Clicky, choppy playback: SD jitter buffer for voice replies — `e9f8a4f`
+  (owner: "very good", 2026-09-26)
+- Tuning over USB: `!tune`, `!say`, `tune.fs`, `tools/tune.py` — `441732b`
+- Quieter power-on music (`boot_volume_pct` 49); farewell "Byeeeeeeeee!" spoken
+  by the device — `91e0fbe`, `ac2917a`
 
 - PlatformIO pin, repo cleanup, packager fix — `develop`
 - Quality sweep (correctness, security, dead code, `main.cpp` split) — `develop`

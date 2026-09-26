@@ -143,8 +143,13 @@ still produced.
 | Method | Command / steps | Keeps M5Launcher? |
 |---|---|---|
 | **SD card via M5Launcher** (normal) | copy `sdcard/*` to the card root, Launcher → OTA → SD card → `Diana.bin` | yes |
-| **USB into the launcher's app slot** (what the launcher does, from a cable) | `~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 --port /dev/cu.usbmodem101 --baud 921600 write_flash 0x170000 .pio/build/cardputer-adv/firmware.bin` | yes |
+| **USB into the launcher's app slot** (what the launcher does, from a cable) | `~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 --port /dev/cu.usbmodem101 --baud 921600 --after watchdog_reset write_flash 0x170000 .pio/build/cardputer-adv/firmware.bin` | yes |
 | **USB full flash** (no launcher) | `pio run -t upload`, or esptool `write_flash 0x0 build/Diana-cardputer-adv-<ver>-full.bin` | **no** (replaces bootloader + partitions; reflash the launcher to get it back) |
+
+Add `--after watchdog_reset` to esptool commands. A plain `hard_reset` over the ADV's
+USB-serial port can leave the chip in download mode ("waiting for download", no boot
+log); the watchdog reset always boots the app. The same flag gets a stuck unit out of
+download mode: `esptool.py --port ... --before no_reset --after watchdog_reset read_mac`.
 
 The `0x170000` offset is where M5Launcher keeps the installed app (`ota_0` in its partition table);
 check it on your unit before trusting it: `esptool.py --port ... read_flash 0x8000 0xc00 pt.bin`.
