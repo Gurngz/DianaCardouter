@@ -10,6 +10,9 @@ Tune DIANA over the USB serial port — no typing on the tiny keyboard.
   python tools/tune.py --preset slow-network         # a named group of settings
   python tools/tune.py --say "The quick brown fox." --repeat 3   # listening test with a report
   python tools/tune.py spool=0 --say "Compare me." ; python tools/tune.py spool=1 --say "Compare me."
+  python tools/tune.py --sweep pop_fix=0,1,2,4,7 --say "Variant {v}."   # A/B by ear: she names each value
+    (--sweep sets each value, waits --gap seconds so hands-free listening restarts, then speaks;
+     the setting is put back to its original value afterwards)
 
 Persistence: runtime tunables go to /diana/tune.fs on the SD card (loaded at boot, before
 boot.fs); config-backed ones (vad, silence_ms, mic_gain, volume, brightness, idle_sleep)
@@ -98,6 +101,8 @@ def main():
     ap.add_argument("--preset", choices=sorted(PRESETS))
     ap.add_argument("--say", metavar="TEXT", help="speak TEXT and report delay and pauses")
     ap.add_argument("--repeat", type=int, default=1)
+    ap.add_argument("--sweep", metavar="NAME=V1,V2,...", help="try each value in turn with --say ({v} = value)")
+    ap.add_argument("--gap", type=float, default=4.0, help="seconds between sweep steps (default 4)")
     a = ap.parse_args()
 
     port = a.port or find_port()
@@ -142,6 +147,26 @@ def main():
         else:
             sys.exit(f"could not read '{a.get}' (no complete answer from DIANA)")
 
+    if a.sweep:
+        m = re.fullmatch(r"([A-Za-z_]+)=(-?\d+(?:,-?\d+)*)", a.sweep)
+        if not m or not a.say:
+            sys.exit("use --sweep name=v1,v2,... together with --say \"text with {v}\"")
+        name, vals = m.group(1), m.group(2).split(",")
+        out = d.send("!tune", lambda b: "[TUNE] END" in b)
+        orig = next((re.match(r"\[TUNE\] \w+=(-?\d+)", l).group(1) for l in d.tune_lines(out)
+                     if l.startswith(f"[TUNE] {name}=")), None)
+        if orig is None:
+            sys.exit(f"no tunable '{name}'")
+        for v in vals:
+            d.send(f"!tune {name}={v}", lambda b: "[TUNE]" in b)
+            time.sleep(a.gap)                        # let hands-free listening restart: the real switch
+            out = d.send("!say " + a.say.replace("{v}", v), lambda b: "[SAY] done" in b, timeout=90)
+            tts = re.search(r"heard=(\d+)ms.*underruns=(\d+)", out)
+            print(f"{name}={v}: " + (f"heard after {int(tts.group(1)) / 1000:.1f}s, {tts.group(2)} pauses" if tts else "no [TTS] report"))
+        d.send(f"!tune {name}={orig}", lambda b: "[TUNE]" in b)
+        print(f"{name} restored to {orig}")
+        a.say = None                                  # handled
+
     if a.say:
         for i in range(a.repeat):
             out = d.send("!say " + a.say, lambda b: "[SAY] done" in b, timeout=90)
@@ -157,7 +182,7 @@ def main():
             if i + 1 < a.repeat:
                 time.sleep(2)
 
-    if not (pairs or a.save or a.get or a.say):
+    if not (pairs or a.save or a.get or a.say or a.sweep):
         out = d.send("!tune", lambda b: "[TUNE] END" in b)
         rows = [l[7:] for l in d.tune_lines(out) if not l.endswith("END")]
         if not rows:

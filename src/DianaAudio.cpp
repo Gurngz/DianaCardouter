@@ -34,7 +34,7 @@ static bool es8311Write(const uint8_t (&seq)[N]) {
 }
 
 static bool micEnableCb(void*, bool enabled) {
-    static const uint8_t on[] = {
+    static uint8_t on[] = {
         0x00, 0x80,   // CSM power on
         0x01, 0xBA,   // clock manager (ADC)
         0x02, 0x18,   // MULT_PRE=3
@@ -50,13 +50,18 @@ static bool micEnableCb(void*, bool enabled) {
     static const uint8_t offFull[] = {
         0x0D, 0xFC, 0x0E, 0x6A, 0x00, 0x00,   // M5Unified default: full power-down
     };
-    if (enabled) return es8311Write(on);
+    if (enabled) {
+        on[3] = (Tune.popFix & 1) ? 0xBF : 0xBA;   // pop_fix 1: keep the DAC clocked while listening
+        bool ok = es8311Write(on);
+        if (Tune.popFix & 2) M5.In_I2C.writeRegister8(ES8311_ADDR, 0x32, 0x00, 100000);   // DAC muted while listening
+        return ok;
+    }
     return Tune.codecHold ? es8311Write(offHold) : es8311Write(offFull);
 }
 
 static bool speakerEnableCb(void*, bool enabled) {
     if (!enabled) return true;   // same as M5Unified: nothing on disable
-    static const uint8_t onMuted[] = {
+    static uint8_t onMuted[] = {
         0x00, 0x80,   // CSM power on
         0x01, 0xB5,   // clock manager (DAC)
         0x02, 0x18,   // MULT_PRE=3
@@ -70,6 +75,8 @@ static bool speakerEnableCb(void*, bool enabled) {
         0x00, 0x80, 0x01, 0xB5, 0x02, 0x18, 0x0D, 0x01,
         0x12, 0x00, 0x13, 0x10, 0x32, 0xBF, 0x37, 0x08,   // M5Unified default order: 0 dB at once
     };
+    onMuted[3]  = (Tune.popFix & 1) ? 0xBF : 0xB5;   // pop_fix 1: ADC clocks stay on too, so nothing toggles
+    onMuted[13] = (Tune.popFix & 4) ? 0x00 : 0x10;   // pop_fix 4: driver stays off; speakerMode enables it later
     return Tune.codecHold ? es8311Write(onMuted) : es8311Write(onDefault);
 }
 
@@ -125,11 +132,18 @@ void DianaAudio::speakerMode() {
     // can report isRunning()==true yet produce NO sound - the shared I2S is left in a dead state.
     // A clean end()+begin() reliably restores real output (verified on device: skipping this gave
     // total silence with perfect codec regs; a full re-init played fine). So always hard re-init.
+    if (Tune.popFix & 2) M5.In_I2C.writeRegister8(0x18, 0x32, 0x00, 100000);   // mute BEFORE the clock stops
+    if (Tune.popFix & 4) M5.In_I2C.writeRegister8(0x18, 0x13, 0x00, 100000);   // driver off across the switch
     if (M5.Mic.isRunning()) M5.Mic.end();
     M5.Speaker.end();
     delay(20);
     M5.Speaker.begin();                                   // re-runs the ES8311 enable callback
     M5.Speaker.setVolume(_volume);
+    if (Tune.popFix & 4) {                                // clocks are running again: settle, then driver on
+        delay(40);
+        M5.In_I2C.writeRegister8(0x18, 0x13, 0x10, 100000);
+        delay(20);
+    }
     // Soft-start: the enable callback leaves the DAC muted (codec_hold) - ramp it up so sound
     // eases in. With codec_hold=0 the library callback snaps to 0 dB first; the re-mute covers that.
     M5.In_I2C.writeRegister8(0x18, 0x32, 0x00, 100000);   // DAC volume -> mute

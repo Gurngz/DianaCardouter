@@ -17,6 +17,9 @@ struct DianaTune {
     int jitterMaxMs        = 4000; // longest wait before the first word, even if a pause may follow (0 = no cap)
     int speechCps          = 15;  // spoken characters per second, for estimating reply length (measured 14.5-17 on Live)
     int bootVolumePct      = 49;  // boot music, % of speaker volume (was 75; cut 35% on request 2026-09-25)
+    int popFix             = 0;   // A/B bits for the pop before speech: 1 = keep DAC+ADC clocks on in both modes,
+                                  // 2 = mute the DAC before the mic->speaker switch (and while listening),
+                                  // 4 = output driver off across the switch, on once clocks are stable
     int codecHold          = 1;   // 1 = keep the ES8311 analog stage powered between mic and speaker (no pop); 0 = M5Unified default
 };
 

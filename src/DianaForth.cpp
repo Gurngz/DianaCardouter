@@ -57,6 +57,7 @@ static const TuneEntry TUNES[] = {
     { "jitter_max_ms", &Tune.jitterMaxMs,         0, 15000, nullptr,         "longest wait before the first word (0 = no cap)", false },
     { "speech_cps",    &Tune.speechCps,           5,   30, nullptr,          "chars/sec used to estimate reply length", false },
     { "boot_volume_pct", &Tune.bootVolumePct,     0,  100, nullptr,          "power-on music level, % of volume", false },
+    { "pop_fix",       &Tune.popFix,              0,    7, nullptr,          "pop A/B bits: 1 clocks on, 2 DAC muted across switch, 4 driver gated", false },
     { "codec_hold",    &Tune.codecHold,           0,    1, nullptr,          "1 = no codec power-down between mic and speaker (anti-pop)", false },
 };
 static const TuneEntry* lookupTune(const String& name) {
