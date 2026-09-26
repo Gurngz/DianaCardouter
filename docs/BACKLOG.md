@@ -70,7 +70,9 @@ move an item to **Done** with its commit when it lands.
      - `moodToStyle()` in `main.cpp` hard-codes "young android" style prompts.
      - `DEFAULT_TTS_STYLE` says "peppy young voice", and `DEFAULT_TTS_VOICE` is Leda.
      - The greeting "I am Diana, D-I-0336-7" is fixed.
-     - The midnight whisper and the "Barnyard Protocol" farewell are in code.
+     - The midnight whisper and the "Barnyard Protocol" farewell are in code
+       (farewell phrase `FAREWELL_TEXT` = "Byeeeeeeeee" since 2026-09-25; spoken by
+       the device, not the model).
      All of these become persona fields. What stays engineering-owned and
      shared by every persona: tools, memory, the Cardputer's limits, languages,
      and the TTS-engine instruction in `DianaLive.cpp`.

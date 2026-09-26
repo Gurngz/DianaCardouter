@@ -439,7 +439,9 @@ void runTurn(const String& text, const char* audioPath, size_t audioBytes) {
             Audio.chirpError();
             break;
         }
-        if (res.text.length()) handleReplyText(res.text, fromVoice && round == 0);
+        // Shutdown turn: the device says FAREWELL_TEXT itself, so the model's words are not voiced.
+        for (auto& c : res.calls) if (c.name == "shutdown_diana") shutdownArmed = true;
+        if (res.text.length() && !shutdownArmed) handleReplyText(res.text, fromVoice && round == 0);
         if (res.calls.empty()) break;
         if (round >= MAX_TOOL_ROUNDS) { UI.log("tool round limit reached", 'w'); break; }
 
@@ -465,9 +467,12 @@ void runTurn(const String& text, const char* audioPath, size_t audioBytes) {
     }
     UI.setState(DianaState::IDLE);
     if (shutdownArmed) {
+        UI.log(FAREWELL_TEXT, 'a');
+        UI.tick();
+        speak(FAREWELL_TEXT);          // always this phrase, whatever the model said (needs WiFi; tones follow regardless)
         UI.log("Barnyard Protocol: powering down.", 's');
         UI.tick();
-        delay(800);
+        delay(300);
         Audio.toneMs(880, 80); Audio.toneMs(660, 80); Audio.toneMs(440, 200);
         M5.Display.fillScreen((uint32_t)C_BLACK);
         M5.Display.setBrightness(0);
@@ -490,10 +495,11 @@ void welcomeProtocol() {
 
     // Boot music (or a chirp), then the greeting streams and speaks live.
     bool music = sdOk && Config.bootMusic && SD.exists(BOOT_WAV_PATH);
+    int bootVol = Config.volume * Tune.bootVolumePct / 100;   // power-on music level (boot_volume_pct)
     if (music) {
         UI.setState(DianaState::WAKING);
         UI.tick();
-        Audio.playWavFile(BOOT_WAV_PATH, playbackTick, Config.volume * 3 / 4);
+        Audio.playWavFile(BOOT_WAV_PATH, playbackTick, bootVol);
     } else {
         Audio.chirpBoot();
         Audio.chirpWake();
