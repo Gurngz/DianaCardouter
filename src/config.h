@@ -56,7 +56,7 @@
 #define DEFAULT_TTS_MODEL   "gemini-3.1-flash-tts-preview"   // low-latency, streams; 2.5 is quota-capped on free tier
 #define DEFAULT_TTS_VOICE   "Leda"
 #define DEFAULT_TTS_STYLE   "Say this in a soft, gentle, slightly peppy young voice: "
-#define FAREWELL_TEXT       "Byeeeeeeeee"   // spoken by the device itself on shutdown (Barnyard Protocol)
+#define FAREWELL_TEXT       "Byeeeeeeeee!"  // spoken by the device itself on shutdown (Barnyard Protocol)
 #define LIVE_MODEL          "models/gemini-2.5-flash-native-audio-preview-12-2025"
 
 // ── Runtime setting defaults (single source for DianaConfig's three loaders) ──
